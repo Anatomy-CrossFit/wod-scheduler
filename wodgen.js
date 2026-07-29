@@ -114,12 +114,34 @@ const GIRLS = [
   { name: "Cindy",     body: "20mins AMRAP\n5 Pull up\n10 Push up\n15 Air squat", sub7: false, capFix: 20, link: ["press", "squat"] },
 ];
 
-/* ---------- 롱 벤치마크 / 히어로 / 오픈 (화목용, 30~50분) ---------- */
+/* ---------- 롱 벤치마크 / 히어로 / 게임즈 (화목용) ----------
+   캡 20분 이하 와드는 선택 시 에르고 바이인이 자동으로 붙는다 */
 const LONG_BENCH = [
   { name: "Murph",  body: "1 mile Run\n100 Pull up\n200 Push up\n300 Air squat\n1 mile Run\n(조끼 착용은 선택)", cap: 50 },
   { name: "The Seven", body: "7 Rounds of\n7 HSPU\n7 Thruster 135/95\n7 T2B\n7 Deadlift 245/165\n7 Burpee\n7 DB Snatch 50/35\n7 Pull up", cap: 49 },
   { name: "Kelly",  body: "5 Rounds of\n400m Run\n30 Box jump 24/20\n30 Wall ball 20/14", cap: 35 },
   { name: "Filthy Fifty", body: "50 Box jump\n50 Jumping pull up\n50 KB Swing 16/12\n50 Walking Lunge\n50 K2E\n50 Push Press 45/35\n50 Back extension\n50 Wall ball\n50 Burpee\n50 Double under", cap: 40 },
+  { name: "DT",     body: "5 Rounds of\n12 Deadlift 155/105\n9 Hang Power Clean 155/105\n6 Push Jerk 155/105", cap: 20 },
+  { name: "Randy",  body: "75 Power Snatch 75/55", cap: 15 },
+  { name: "JT",     body: "21-15-9\nHSPU\nRing dip\nPush up", cap: 20 },
+  { name: "Michael", body: "3 Rounds of\n800m Run\n50 Back extension\n50 Sit up", cap: 30 },
+  { name: "Daniel", body: "50 Pull up\n400m Run\n21 Thruster 95/65\n800m Run\n21 Thruster 95/65\n400m Run\n50 Pull up", cap: 35 },
+  { name: "Josh",   body: "21 OHS 95/65\n42 Pull up\n15 OHS 95/65\n30 Pull up\n9 OHS 95/65\n18 Pull up", cap: 25 },
+  { name: "Jason",  body: "100 Air squat\n5 Muscle up\n75 Air squat\n10 Muscle up\n50 Air squat\n15 Muscle up\n25 Air squat\n20 Muscle up", cap: 35 },
+  { name: "Badger", body: "3 Rounds of\n30 Squat Clean 95/65\n30 Pull up\n800m Run", cap: 45 },
+  { name: "Nate",   body: "20mins AMRAP\n2 Muscle up\n4 HSPU\n8 KB Swing 32/24", cap: 20 },
+  { name: "Griff",  body: "800m Run\n400m Backwards Run\n800m Run\n400m Backwards Run", cap: 20 },
+  { name: "Ryan",   body: "5 Rounds of\n7 Muscle up\n21 Burpee", cap: 30 },
+  { name: "Erin",   body: "5 Rounds of\n15 DB Split Clean 40/25\n21 Pull up", cap: 30 },
+  { name: "Loredo", body: "6 Rounds of\n24 Air squat\n24 Push up\n24 Walking Lunge\n400m Run", cap: 40 },
+  { name: "Hansen", body: "5 Rounds of\n30 KB Swing 32/24\n30 Burpee\n30 GHD Sit up", cap: 45 },
+  { name: "Whitten", body: "5 Rounds of\n22 KB Swing 32/24\n22 Box jump 24/20\n400m Run\n22 Burpee\n22 Wall ball 20/14", cap: 45 },
+  { name: "Manion", body: "7 Rounds of\n400m Run\n29 Back Squat 135/95", cap: 45 },
+  { name: "Wittman", body: "7 Rounds of\n15 KB Swing 24/16\n15 Power Clean 95/65\n15 Box jump 24/20", cap: 40 },
+  { name: "Klepto", body: "4 Rounds of\n27 Box jump 24/20\n20 Burpee\n11 Squat Clean 145/100", cap: 35 },
+  { name: "Coe",    body: "10 Rounds of\n10 Thruster 95/65\n10 Ring push up", cap: 30 },
+  { name: "Amanda", body: "9-7-5\nMuscle up\nSquat Snatch 135/95", cap: 15 },
+  { name: "Games 2007", body: "1000m Row\n5 Rounds of\n25 Pull up\n7 Push Jerk 135/95", cap: 20 },
 ];
 const OPENS = [
   { name: "OPEN 24.1", body: "21-15-9 (each arm)\nDB Snatch 50/35\nBurpee over DB", cap: 15 },
@@ -128,6 +150,17 @@ const OPENS = [
   { name: "OPEN 25.1", body: "3-6-9-12-15...\nBurpee over DB\nDB Hang clean to OH 50/35\n+ 30ft Walking Lunge 매 라운드", cap: 15 },
   { name: "OPEN 25.2", body: "21 Pull up / 42 DU / 21 Thruster 95/65\n18 C2B / 36 DU / 18 Thruster 115/75\n15 Muscle up / 30 DU / 15 Thruster 135/85", cap: 15 },
   { name: "OPEN 26.1", body: "20-30-40-66-40-30-20\nWall ball 20/14\n18 Box jump over 매 구간 사이", cap: 12 },
+  { name: "OPEN 23.1", body: "14mins AMRAP\n60cals Row\n50 T2B\n40 Wall ball 20/14\n30 Clean 135/95\n20 Muscle up", cap: 14 },
+  { name: "OPEN 22.2", body: "1-2-3-4-5-6-7-8-9-10\n-9-8-7-6-5-4-3-2-1\nDeadlift 225/155\nBar facing burpee", cap: 10 },
+  { name: "OPEN 21.2", body: "10-20-30-40-50\nDB Snatch 50/35\n15 Burpee box jump over 사이마다", cap: 20 },
+  { name: "OPEN 21.3", body: "15 Front squat 95/65\n30 T2B\n15 Thruster\n(1min Rest)\n15 Front squat\n30 C2B Pull up\n15 Thruster\n(1min Rest)\n15 Front squat\n30 Bar Muscle up\n15 Thruster", cap: 15 },
+  { name: "OPEN 20.1", body: "10 Rounds of\n8 Ground to Overhead 95/65\n10 Bar facing burpee", cap: 15 },
+  { name: "OPEN 19.1", body: "15mins AMRAP\n19 Wall ball 20/14\n19cals Row", cap: 15 },
+  { name: "OPEN 18.1", body: "20mins AMRAP\n8 T2B\n10 DB Hang Clean & Jerk 50/35\n14cals Row", cap: 20 },
+  { name: "OPEN 16.1", body: "20mins AMRAP\n25ft OH Walking Lunge 95/65\n8 Burpee\n25ft OH Walking Lunge\n8 C2B Pull up", cap: 20 },
+  { name: "OPEN 15.5", body: "27-21-15-9\ncals Row\nThruster 95/65", cap: 20 },
+  { name: "OPEN 14.5", body: "21-18-15-12-9-6-3\nThruster 95/65\nBar facing burpee", cap: 25 },
+  { name: "OPEN 12.1", body: "7mins Max Burpee", cap: 7 },
 ];
 
 /* ---------- 대한민국 공휴일 (대체공휴일 포함, 2025~2027) ----------
@@ -564,7 +597,8 @@ function commemorativeFor(date, isCardioDay) {
   /* 7/7 -> The Seven */
   if (m === 7 && d === 7) {
     STATE.benchUse["The Seven"] = dateKey(date); /* 60일 쿨다운에 반영 */
-    return { title: "The Seven (7/7)", body: LONG_BENCH[1].body + "\nTime cap 49mins", cat: "plum" };
+    const seven = LONG_BENCH.find((b) => b.name === "The Seven");
+    return { title: "The Seven (7/7)", body: seven.body + "\nTime cap 49mins", cat: "plum" };
   }
   /* 숫자 반복일 (6/6, 8/8 ...) */
   if (m === d) {
@@ -651,16 +685,19 @@ function longBenchOrOpen(dateStr) {
     if (LONG_BENCH.includes(lru)) heroes = [lru]; else opens = [lru];
   }
   const useHero = heroes.length && (!opens.length || chance(0.6));
-  let out;
-  if (useHero) {
-    const b = choice(heroes);
-    out = { title: b.name, body: `${b.body}\nTime cap ${b.cap}mins`, cat: "plum" };
-  } else {
-    const o = choice(opens);
-    /* 오픈 와드에는 공간동작(월볼/박스 등)이 흔해서 바이인은 에르고로만 */
+  const b = useHero ? choice(heroes) : choice(opens);
+  /* 짧은 와드(캡 20분 이하)는 화목 볼륨에 맞게 에르고 바이인을 앞에 붙임
+     (공간동작이 흔해서 바이인은 에르고로만) */
+  let body, capNote;
+  if (b.cap <= 20) {
     const buyin = choice(["2000m Row Buy-in", "1500m Ski Buy-in", "40cals Bike Buy-in"]);
-    out = { title: o.name, body: `${buyin}\n${o.body}\nTime cap ${o.cap}mins (본 와드)`, cat: "plum" };
+    body = `${buyin}\n${b.body}`;
+    capNote = `Time cap ${b.cap}mins (본 와드)`;
+  } else {
+    body = b.body;
+    capNote = `Time cap ${b.cap}mins`;
   }
+  const out = { title: b.name, body: `${body}\n${capNote}`, cat: "plum" };
   STATE.benchUse[out.title] = dateStr;
   return out;
 }

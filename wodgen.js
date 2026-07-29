@@ -334,10 +334,10 @@ function buildMetconOnce(targetMin, opts) {
   return buildRounds(targetMin, pool, mult, opts);
 }
 
-function capLine(estMin) {
-  /* 타임캡은 "내용물 검산 시간" + 15% 여유. 최대 50분 —
-     Rx'd 기준으로 무조건 캡 안에 끝낼 수 있어야 한다 */
-  const cap = Math.min(50, Math.ceil((estMin * 1.15) / 5) * 5);
+function capLine(estMin, maxCap = 50) {
+  /* 타임캡은 "내용물 검산 시간" + 15% 여유.
+     화목 최대 50분, 월수금 최대 20분 — Rx'd 기준 무조건 캡 안에 완주 가능해야 한다 */
+  const cap = Math.min(maxCap, Math.ceil((estMin * 1.15) / 5) * 5);
   return `Time cap ${cap}mins`;
 }
 /* 표기된 수행량의 예상 소요시간(분). 파트너는 교대 수행이라
@@ -361,7 +361,7 @@ function buildRounds(T, pool, mult, opts) {
   const body = [
     `${rounds} Rounds For Time`,
     ...lines,
-    capLine(est),
+    capLine(est, opts.mwf ? 20 : 50),
   ].join("\n");
   return { body, sig: sigOf(moves, `rounds${rounds}`), est };
 }
@@ -406,7 +406,7 @@ function buildLadder(T, pool, mult, opts) {
     lines.push(`Cash-out: ${fmtLine(fill, half, opts)}`);
     est += 2 * estOf(fill, half, mult);
   }
-  lines.push(capLine(est));
+  lines.push(capLine(est, opts.mwf ? 20 : 50));
   return { body: lines.join("\n"), sig: sigOf(moves, `lad${best[0]}-${best.length}`), est };
 }
 
@@ -419,7 +419,7 @@ function buildChipper(T, pool, mult, opts) {
   const amounts = moves.map((m) => amountFor(m, per, mult));
   const est = moves.reduce((s, m, i) => s + estOf(m, amounts[i], mult), 0);
   const lines = moves.map((m, i) => fmtLine(m, amounts[i], opts));
-  const body = [`For Time (Chipper)`, ...lines, capLine(est)].join("\n");
+  const body = [`For Time (Chipper)`, ...lines, capLine(est, opts.mwf ? 20 : 50)].join("\n");
   return { body, sig: sigOf(moves, "chip"), est };
 }
 
@@ -570,7 +570,7 @@ function commemorativeFor(date, isCardioDay) {
     const rounds = isCardioDay ? Math.max(n, 6) : n;
     return {
       title: `${m}/${d} 기념 WOD`,
-      body: [`${rounds} Rounds For Time`, ...lines, capLine(isCardioDay ? 40 : 15)].join("\n"),
+      body: [`${rounds} Rounds For Time`, ...lines, isCardioDay ? capLine(40) : capLine(15, 20)].join("\n"),
       cat: "plum",
     };
   }
@@ -588,7 +588,7 @@ function commemorativeFor(date, isCardioDay) {
     const runLead = isCardioDay ? `${fire ? 1190 : 1120}m Run Buy-in\n` : "";
     return {
       title: label,
-      body: [`For Time`, runLead + `${rounds} Rounds of`, ...lines, capLine(isCardioDay ? 40 : 18)].join("\n"),
+      body: [`For Time`, runLead + `${rounds} Rounds of`, ...lines, isCardioDay ? capLine(40) : capLine(17, 20)].join("\n"),
       cat: "plum",
     };
   }
@@ -605,7 +605,7 @@ function holidayWod(name, date, isCardioDay) {
   const lines = moves.map((mv) => `${niceReps(reps, { even: !!mv.alt })} ${mv.n}`);
   return {
     title: `${name} 기념 WOD (${m}/${d})`,
-    body: [`${rounds} Rounds For Time`, ...lines, capLine(isCardioDay ? 40 : 16)].join("\n"),
+    body: [`${rounds} Rounds For Time`, ...lines, isCardioDay ? capLine(40) : capLine(16, 20)].join("\n"),
     cat: "plum",
   };
 }
@@ -782,7 +782,7 @@ function generateWeek(monday, prevWeekState) {
         const g = girlsFor(lift, week);
         metcon = { cat: "plum", body: `${g.title}\n\n${g.body}`, benchmark: true };
       } else {
-        const T = choice([7, 8, 10, 12, 14, 15, 16, 18, 20]);
+        const T = choice([7, 8, 10, 12, 14, 15, 16, 18]);
         const pool = linkedPool(lift, week);
         const w = composeMetcon(T, {
           pool, mwf: true, partner,
@@ -833,7 +833,7 @@ function generateWeek(monday, prevWeekState) {
       } else {
         const lift = liftByDow[dw];
         const partner = !!d.metcon.partner;
-        const w = composeMetcon(choice([7, 8, 10, 12, 14, 15, 16, 18, 20]), {
+        const w = composeMetcon(choice([7, 8, 10, 12, 14, 15, 16, 18]), {
           pool: linkedPool(lift, week), mwf: true, partner, requireRun: true,
           hasBackSquat: week.names[lift] === "Back Squat",
         });
@@ -915,7 +915,7 @@ function regenDaySlot(day, slot) {
     saveState(STATE);
   } else if (day.kind === "mwf" && slot === "metcon") {
     if (day.metcon.benchmark || day.metcon.special) return day;
-    const T = choice([7, 8, 10, 12, 14, 15, 16, 18, 20]);
+    const T = choice([7, 8, 10, 12, 14, 15, 16, 18]);
     const lift = day.strength.lift;
     const week = { flags: {}, names: {} }; // 변형 정보 근사: 이름으로 판단
     if (day.strength.body === "Thruster") week.flags.thruster = true;

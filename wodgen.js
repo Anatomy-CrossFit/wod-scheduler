@@ -286,8 +286,9 @@ function composeMetcon(targetMin, opts = {}) {
   for (let attempt = 0; attempt < 16; attempt++) {
     const w = buildMetconOnce(targetMin, opts);
     if (!w) continue;
-    /* 볼륨 검산: 완성본의 예상 소요시간이 목표 ±25%를 벗어나면 재조립 */
-    if (w.est && Math.abs(w.est - targetMin) > targetMin * 0.25) continue;
+    /* 볼륨 검산: 목표 대비 -25% ~ +5%만 허용.
+       부족하면 재조립(또는 빌더가 바이인으로 보충), 초과는 Rx'd 완주 불가라 탈락 */
+    if (w.est && (w.est < targetMin * 0.75 || w.est > targetMin * 1.05)) continue;
     if (isRecentDup(w.sig) && !chance(0.05)) continue; // 95% 재추첨
     recordSig(w.sig);
     return w;
@@ -319,8 +320,9 @@ function buildMetconOnce(targetMin, opts) {
 }
 
 function capLine(estMin) {
-  /* 타임캡은 목표치가 아니라 "내용물 검산 시간" 기준 (+15% 여유) */
-  const cap = Math.min(60, Math.ceil((estMin * 1.15) / 5) * 5);
+  /* 타임캡은 "내용물 검산 시간" + 15% 여유. 최대 50분 —
+     Rx'd 기준으로 무조건 캡 안에 끝낼 수 있어야 한다 */
+  const cap = Math.min(50, Math.ceil((estMin * 1.15) / 5) * 5);
   return `Time cap ${cap}mins`;
 }
 /* 표기된 수행량의 예상 소요시간(분). 파트너는 교대 수행이라
@@ -717,7 +719,8 @@ function generateWeek(monday, prevWeekState) {
         const b = longBenchOrOpen();
         cardio = { title: b.title, body: `${b.title}\n${b.body}`, cat: "plum", benchmark: true };
       } else {
-        const T = choice([30, 35, 40, 45, 50]);
+        /* 내용물 30~42분 + 캡 최대 50분 (캡 = 검산 +15%) */
+        const T = choice([30, 35, 40]);
         const w = composeMetcon(T, { partner, station: chance(0.25) });
         cardio = {
           title: partner ? "Partner WOD" : "",
@@ -812,7 +815,7 @@ function listStoredMonths() {
 function regenDaySlot(day, slot) {
   if (day.kind === "cardio") {
     if (day.cardio.minirox || day.cardio.benchmark || day.cardio.special) return day;
-    const T = choice([30, 35, 40, 45, 50]);
+    const T = choice([30, 35, 40]);
     const partner = !!day.cardio.partner;
     const w = composeMetcon(T, { partner, station: chance(0.25) });
     day.cardio = {

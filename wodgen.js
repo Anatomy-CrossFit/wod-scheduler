@@ -654,14 +654,26 @@ function holidayWod(name, date, isCardioDay) {
 /* ============================================================
    벤치마크 배치 (Girls / Hero·Open)
    ============================================================ */
-function girlsFor(lift, week) {
+function girlsFor(lift, week, dateStr) {
+  /* 우선순위: 60일 중복 금지 > 리프트 연계 > 주 1회 벤치마크 충족 */
+  const d0 = new Date(dateStr).getTime();
+  const fresh = (n) => {
+    const last = STATE.benchUse[n];
+    return !last || Math.abs(d0 - new Date(last).getTime()) >= 60 * 86400000;
+  };
   const linkKeys = [];
   if (lift === "squat") linkKeys.push(week.flags.thruster ? "thr" : "squat");
   if (week.flags.cnj && lift === "clean") linkKeys.push("cnj");
   linkKeys.push(lift);
-  let cands = GIRLS.filter((g) => g.link.some((l) => linkKeys.includes(l)));
-  if (!cands.length) cands = GIRLS;
+  let cands = GIRLS.filter((g) => g.link.some((l) => linkKeys.includes(l)) && fresh(g.name));
+  if (!cands.length) cands = GIRLS.filter((g) => fresh(g.name)); /* 연계보다 중복 금지 우선 */
+  if (!cands.length) {
+    /* 전부 최근 사용(사실상 발생 안 함) -> 가장 오래된 것 */
+    cands = [GIRLS.reduce((a, b) =>
+      new Date(STATE.benchUse[a.name] || 0) <= new Date(STATE.benchUse[b.name] || 0) ? a : b)];
+  }
   const g = choice(cands);
+  STATE.benchUse[g.name] = dateStr;
   let cap;
   if (g.capFix) cap = `${g.capFix}mins`;
   else if (g.sub7) cap = chance(0.75) ? "Time cap 7mins" : "Time cap 15mins";
@@ -867,7 +879,7 @@ function generateWeek(monday, prevWeekState) {
       } else if (specialDow === dow) {
         metcon = { cat: "plum", body: `${specialWod.title}\n\n${specialWod.body}`, special: true };
       } else if (benchDow === dow) {
-        const g = girlsFor(lift, week);
+        const g = girlsFor(lift, week, k);
         metcon = { cat: "plum", body: `${g.title}\n\n${g.body}`, benchmark: true };
       } else {
         const T = choice([7, 8, 10, 12, 14, 15, 16, 18]);

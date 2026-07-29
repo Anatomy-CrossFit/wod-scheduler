@@ -914,6 +914,17 @@ function generateMonthSchedule(year, month /* 0-11 */) {
     mondays.push(new Date(cursor));
     cursor.setDate(cursor.getDate() + 7);
   }
+  /* 재생성 정리: 이번 생성 범위(첫 주 월 ~ 마지막 주 금)에 찍힌 히어로/오픈
+     사용 기록은 폐기 — 버려질 배치의 기록이 쌓여 풀을 고갈시키고
+     60일 쿨다운 폴백(LRU)이 오작동하는 것을 방지. 다시 배치되면 재기록됨 */
+  const purgeStart = dateKey(mondays[0]);
+  const lastFriday = new Date(mondays[mondays.length - 1]);
+  lastFriday.setDate(lastFriday.getDate() + 4);
+  const purgeEnd = dateKey(lastFriday);
+  for (const [bn, bd] of Object.entries(STATE.benchUse)) {
+    if (bd >= purgeStart && bd <= purgeEnd) delete STATE.benchUse[bn];
+  }
+
   /* 직전 주 상태 (localStorage) */
   const prevMonday = new Date(mondays[0]);
   prevMonday.setDate(prevMonday.getDate() - 7);

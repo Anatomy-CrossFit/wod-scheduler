@@ -111,8 +111,19 @@ const GIRLS = [
   { name: "Helen",     body: "3 Rounds of\n400m Run\n21 KB Swing 24/16\n12 Pull up", sub7: false, link: ["snatch"] },
   { name: "Nancy",     body: "5 Rounds of\n400m Run\n15 OHS 95/65", sub7: false, link: ["squat", "snatch"] },
   { name: "Jackie",    body: "1000m Row\n50 Thruster 45/35\n30 Pull up", sub7: false, link: ["thr", "press"] },
-  { name: "Cindy",     body: "20mins AMRAP\n5 Pull up\n10 Push up\n15 Air squat", sub7: false, capFix: 20, link: ["press", "squat"] },
+  { name: "Cindy",     body: "20mins AMRAP\n5 Pull up\n10 Push up\n15 Air squat", sub7: false, noCap: true, link: ["press", "squat"] },
 ];
+
+/* 월수금 벤치마크에는 Girls 외에 20분 내 완주 가능한 짧은 히어로/클래식도 포함 */
+const MWF_EXTRA = [
+  { name: "Randy",  body: "75 Power Snatch 75/55", capFix: 15, link: ["snatch"] },
+  { name: "DT",     body: "5 Rounds of\n12 Deadlift 155/105\n9 Hang Power Clean 155/105\n6 Push Jerk 155/105", capFix: 20, link: ["clean", "press", "dead"] },
+  { name: "JT",     body: "21-15-9\nHSPU\nRing dip\nPush up", capFix: 20, link: ["press"] },
+  { name: "Burpee King", body: "50 Lateral burpee bar jump over", sub7: true, link: ["any"] },
+  { name: "Amanda", body: "9-7-5\nMuscle up\nSquat Snatch 135/95", capFix: 15, link: ["snatch"] },
+  { name: "Griff",  body: "800m Run\n400m Backwards Run\n800m Run\n400m Backwards Run", capFix: 20, link: ["any"] },
+];
+const MWF_BENCH = GIRLS.concat(MWF_EXTRA);
 
 /* ---------- 롱 벤치마크 / 히어로 / 게임즈 (화목용) ----------
    캡 20분 이하 와드는 선택 시 에르고 바이인이 자동으로 붙는다 */
@@ -665,20 +676,22 @@ function girlsFor(lift, week, dateStr) {
   if (lift === "squat") linkKeys.push(week.flags.thruster ? "thr" : "squat");
   if (week.flags.cnj && lift === "clean") linkKeys.push("cnj");
   linkKeys.push(lift);
-  let cands = GIRLS.filter((g) => g.link.some((l) => linkKeys.includes(l)) && fresh(g.name));
-  if (!cands.length) cands = GIRLS.filter((g) => fresh(g.name)); /* 연계보다 중복 금지 우선 */
+  const linked = (g) => g.link.includes("any") || g.link.some((l) => linkKeys.includes(l));
+  let cands = MWF_BENCH.filter((g) => linked(g) && fresh(g.name));
+  if (!cands.length) cands = MWF_BENCH.filter((g) => fresh(g.name)); /* 연계보다 중복 금지 우선 */
   if (!cands.length) {
-    /* 전부 최근 사용(사실상 발생 안 함) -> 가장 오래된 것 */
-    cands = [GIRLS.reduce((a, b) =>
+    /* 전부 최근 사용 -> 가장 오래된 것 */
+    cands = [MWF_BENCH.reduce((a, b) =>
       new Date(STATE.benchUse[a.name] || 0) <= new Date(STATE.benchUse[b.name] || 0) ? a : b)];
   }
   const g = choice(cands);
   STATE.benchUse[g.name] = dateStr;
   let cap;
-  if (g.capFix) cap = `${g.capFix}mins`;
+  if (g.noCap) cap = null; /* Cindy처럼 본문에 시간이 포함된 AMRAP */
+  else if (g.capFix) cap = `Time cap ${g.capFix}mins`;
   else if (g.sub7) cap = chance(0.75) ? "Time cap 7mins" : "Time cap 15mins";
   else cap = `Time cap ${choice([15, 17, 20])}mins`;
-  return { title: g.name, body: `${g.body}\n${cap}`, cat: "plum" };
+  return { title: g.name, body: cap ? `${g.body}\n${cap}` : g.body, cat: "plum" };
 }
 function longBenchOrOpen(dateStr) {
   /* 같은 히어로/오픈 와드는 60일(2달) 이내 재등장 금지 */

@@ -156,6 +156,7 @@ const HOLIDAYS = {
 /* ---------- Mini Rox (고정 내용) ---------- */
 const MINI_ROX_BODY = [
   "Mini Rox",
+  "",
   "Time cap 44mins",
   "500m(M)/400m(W) Run",
   "50 Push up",
@@ -713,18 +714,18 @@ function generateWeek(monday, prevWeekState) {
         cardio = { title: "Mini Rox", body: MINI_ROX_BODY, cat: "yellow", minirox: true };
       } else if (specialDow === dow) {
         /* 기념일 와드: 이름을 본문 첫 줄에 */
-        cardio = { title: specialWod.title, body: `${specialWod.title}\n${specialWod.body}`, cat: "plum", special: true };
+        cardio = { title: specialWod.title, body: `${specialWod.title}\n\n${specialWod.body}`, cat: "plum", special: true };
       } else if (benchDow === dow) {
         /* 벤치마크: 이름(Murph, The Seven 등)을 본문 첫 줄에 */
         const b = longBenchOrOpen();
-        cardio = { title: b.title, body: `${b.title}\n${b.body}`, cat: "plum", benchmark: true };
+        cardio = { title: b.title, body: `${b.title}\n\n${b.body}`, cat: "plum", benchmark: true };
       } else {
         /* 내용물 30~42분 + 캡 최대 50분 (캡 = 검산 +15%) */
         const T = choice([30, 35, 40]);
         const w = composeMetcon(T, { partner, station: chance(0.25) });
         cardio = {
           title: partner ? "Partner WOD" : "",
-          body: (partner ? "Partner WOD (2인 교대)\n" : "") + w.body,
+          body: (partner ? "Partner WOD (2인 교대)\n\n" : "") + w.body,
           cat: partner ? "teal" : "yellow",
           partner,
         };
@@ -737,10 +738,10 @@ function generateWeek(monday, prevWeekState) {
       const strength = { cat: LIFT_COLORS[lift], top: "5x5", body: sname, lift };
       let metcon;
       if (specialDow === dow) {
-        metcon = { cat: "plum", body: `${specialWod.title}\n${specialWod.body}`, special: true };
+        metcon = { cat: "plum", body: `${specialWod.title}\n\n${specialWod.body}`, special: true };
       } else if (benchDow === dow) {
         const g = girlsFor(lift, week);
-        metcon = { cat: "plum", body: `${g.title}\n${g.body}`, benchmark: true };
+        metcon = { cat: "plum", body: `${g.title}\n\n${g.body}`, benchmark: true };
       } else {
         const T = choice([7, 8, 10, 12, 14, 15, 16, 18, 20]);
         const pool = linkedPool(lift, week);
@@ -750,7 +751,7 @@ function generateWeek(monday, prevWeekState) {
         });
         metcon = {
           cat: partner ? "teal" : "white",
-          body: (partner ? "Partner WOD (2인 교대)\n" : "") + w.body,
+          body: (partner ? "Partner WOD (2인 교대)\n\n" : "") + w.body,
           partner,
         };
       }
@@ -820,7 +821,7 @@ function regenDaySlot(day, slot) {
     const w = composeMetcon(T, { partner, station: chance(0.25) });
     day.cardio = {
       title: partner ? "Partner WOD" : "",
-      body: (partner ? "Partner WOD (2인 교대)\n" : "") + w.body,
+      body: (partner ? "Partner WOD (2인 교대)\n\n" : "") + w.body,
       cat: partner ? "teal" : "yellow",
       partner,
     };
@@ -839,7 +840,7 @@ function regenDaySlot(day, slot) {
     });
     day.metcon = {
       cat: partner ? "teal" : "white",
-      body: (partner ? "Partner WOD (2인 교대)\n" : "") + w.body,
+      body: (partner ? "Partner WOD (2인 교대)\n\n" : "") + w.body,
       partner,
     };
     saveState(STATE);

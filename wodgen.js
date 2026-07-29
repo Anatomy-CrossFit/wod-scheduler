@@ -277,6 +277,7 @@ STATE.history = (STATE.history || []).filter(
   (h) => Date.now() - h.t < 370 * 24 * 3600 * 1000
 );
 STATE.weeks = STATE.weeks || {};
+STATE.benchUse = STATE.benchUse || {}; /* 히어로/오픈 와드 마지막 배치일: { 이름: "YYYY-MM-DD" } */
 
 function sigOf(moves, patternKey) {
   return patternKey + "|" + moves.map((m) => m.n).sort().join(",");
@@ -559,7 +560,10 @@ function commemorativeFor(date, isCardioDay) {
   const m = date.getMonth() + 1, d = date.getDate();
   const key = `${m}/${d}`;
   /* 7/7 -> The Seven */
-  if (m === 7 && d === 7) return { title: "The Seven (7/7)", body: LONG_BENCH[1].body + "\nTime cap 49mins", cat: "plum" };
+  if (m === 7 && d === 7) {
+    STATE.benchUse["The Seven"] = dateKey(date); /* 60일 쿨다운에 반영 */
+    return { title: "The Seven (7/7)", body: LONG_BENCH[1].body + "\nTime cap 49mins", cat: "plum" };
+  }
   /* 숫자 반복일 (6/6, 8/8 ...) */
   if (m === d) {
     const n = d;
@@ -627,15 +631,55 @@ function girlsFor(lift, week) {
   else cap = `Time cap ${choice([15, 17, 20])}mins`;
   return { title: g.name, body: `${g.body}\n${cap}`, cat: "plum" };
 }
-function longBenchOrOpen() {
-  if (chance(0.6)) {
-    const b = choice(LONG_BENCH);
-    return { title: b.name, body: `${b.body}\nTime cap ${b.cap}mins`, cat: "plum" };
+function longBenchOrOpen(dateStr) {
+  /* 같은 히어로/오픈 와드는 60일(2달) 이내 재등장 금지 */
+  const d0 = new Date(dateStr).getTime();
+  const fresh = (n) => {
+    const last = STATE.benchUse[n];
+    return !last || Math.abs(d0 - new Date(last).getTime()) >= 60 * 86400000;
+  };
+  let heroes = LONG_BENCH.filter((b) => fresh(b.name));
+  let opens = OPENS.filter((o) => fresh(o.name));
+  if (!heroes.length && !opens.length) {
+    /* 전부 최근 사용 -> 가장 오래전에 쓴 것으로 대체 */
+    const all = LONG_BENCH.concat(OPENS);
+    const lru = all.reduce((a, b) =>
+      new Date(STATE.benchUse[a.name]) <= new Date(STATE.benchUse[b.name]) ? a : b);
+    if (LONG_BENCH.includes(lru)) heroes = [lru]; else opens = [lru];
   }
-  const o = choice(OPENS);
-  /* 오픈 와드에는 공간동작(월볼/박스 등)이 흔해서 바이인은 에르고로만 */
-  const buyin = choice(["2000m Row Buy-in", "1500m Ski Buy-in", "40cals Bike Buy-in"]);
-  return { title: o.name, body: `${buyin}\n${o.body}\nTime cap ${o.cap}mins (본 와드)`, cat: "plum" };
+  const useHero = heroes.length && (!opens.length || chance(0.6));
+  let out;
+  if (useHero) {
+    const b = choice(heroes);
+    out = { title: b.name, body: `${b.body}\nTime cap ${b.cap}mins`, cat: "plum" };
+  } else {
+    const o = choice(opens);
+    /* 오픈 와드에는 공간동작(월볼/박스 등)이 흔해서 바이인은 에르고로만 */
+    const buyin = choice(["2000m Row Buy-in", "1500m Ski Buy-in", "40cals Bike Buy-in"]);
+    out = { title: o.name, body: `${buyin}\n${o.body}\nTime cap ${o.cap}mins (본 와드)`, cat: "plum" };
+  }
+  STATE.benchUse[out.title] = dateStr;
+  return out;
+}
+
+/* Guess my Row/Ski — 스트랭스 날 파트너 게임 메트콘, 캡 20분 고정.
+   모니터를 보지 않고 목표 거리를 맞추는 형식 */
+function guessGameWod() {
+  const erg = chance(0.5) ? "Row" : "Ski";
+  const variants = [
+    ["각자 번갈아 100m 정확히 맞추기 x 10회", "오차 1m당 2 Burpee (모아서 마지막에 같이)"],
+    ["111-222-333-444-555m 순서대로 맞추기 (교대)", "오차 10m당 5 Air squat"],
+    ["매 라운드 80~120m 목표를 상대가 지정", "모니터 가리고 맞추기 x 12회 (교대)", "오차 1m당 2 Sit up"],
+  ];
+  const body = [
+    `Guess my ${erg}`,
+    "",
+    "Partner WOD (2인 교대)",
+    "모니터를 보지 않고 목표 거리 맞추기",
+    ...choice(variants),
+    "Time cap 20mins",
+  ].join("\n");
+  return { cat: "pink", body, partner: true, guess: true };
 }
 
 /* ============================================================
@@ -729,6 +773,20 @@ function generateWeek(monday, prevWeekState) {
   if (partnerEligible.length) partnerDows.add(choice(partnerEligible));
   for (const d of partnerEligible) if (chance(0.15)) partnerDows.add(d);
 
+  /* --- Guess my Row/Ski: 2주에 최소 1회, 월수금(스트랭스 날) 파트너 메트콘 ---
+     지난주에 없었으면 이번 주는 필수. 있었으면 25% 확률로 또 가능 */
+  const needGuess = !(prevWeekState && prevWeekState.guess);
+  week.guess = false;
+  let guessDow = null;
+  if (needGuess || chance(0.25)) {
+    const mwfCands = [1, 3, 5].filter((d) => !hol[d] && d !== benchDow && d !== specialDow);
+    if (mwfCands.length) {
+      guessDow = choice(mwfCands);
+      partnerDows.add(guessDow);
+      week.guess = true;
+    }
+  }
+
   /* --- 각 요일 생성 --- */
   for (let dow = 1; dow <= 5; dow++) {
     const dt = dates[dow];
@@ -756,7 +814,7 @@ function generateWeek(monday, prevWeekState) {
         cardio = { title: specialWod.title, body: `${specialWod.title}\n\n${specialWod.body}`, cat: "plum", special: true };
       } else if (benchDow === dow) {
         /* 벤치마크: 이름(Murph, The Seven 등)을 본문 첫 줄에 */
-        const b = longBenchOrOpen();
+        const b = longBenchOrOpen(k);
         cardio = { title: b.title, body: `${b.title}\n\n${b.body}`, cat: "plum", benchmark: true };
       } else {
         /* 내용물 30~42분 + 캡 최대 50분 (캡 = 검산 +15%) */
@@ -776,7 +834,9 @@ function generateWeek(monday, prevWeekState) {
       const sname = week.names[lift];
       const strength = { cat: LIFT_COLORS[lift], top: "5x5", body: sname, lift };
       let metcon;
-      if (specialDow === dow) {
+      if (dow === guessDow) {
+        metcon = guessGameWod();
+      } else if (specialDow === dow) {
         metcon = { cat: "plum", body: `${specialWod.title}\n\n${specialWod.body}`, special: true };
       } else if (benchDow === dow) {
         const g = girlsFor(lift, week);
@@ -816,7 +876,7 @@ function generateWeek(monday, prevWeekState) {
     }
     if (!cands.length) for (const dw of [1, 3, 5]) {
       const d = days[dw];
-      if (d && d.kind === "mwf" && !d.metcon.benchmark && !d.metcon.special) cands.push(dw);
+      if (d && d.kind === "mwf" && !d.metcon.benchmark && !d.metcon.special && !d.metcon.guess) cands.push(dw);
     }
     if (cands.length) {
       const dw = choice(cands);
@@ -870,14 +930,20 @@ function generateMonthSchedule(year, month /* 0-11 */) {
 
   for (const monday of mondays) {
     const { week, days } = generateWeek(monday, prevState);
-    STATE.weeks[isoWeekKey(monday)] = { order: week.order, miniRox: week.miniRox };
-    prevState = { order: week.order, miniRox: week.miniRox };
+    STATE.weeks[isoWeekKey(monday)] = { order: week.order, miniRox: week.miniRox, guess: week.guess };
+    prevState = { order: week.order, miniRox: week.miniRox, guess: week.guess };
     for (let dow = 1; dow <= 5; dow++) {
       const day = days[dow];
       if (!day) continue;
       const d = new Date(monday);
       d.setDate(monday.getDate() + dow - 1);
-      if (d.getMonth() !== month || d.getFullYear() !== year) continue; // 이 달만 표시
+      if (d.getMonth() !== month || d.getFullYear() !== year) {
+        /* 월 경계 주: 이웃 달이 이미 저장돼 있으면 그쪽 날짜도 이번 생성본으로
+           동기화 — 주간 규칙(리프트 순서·Guess·MiniRox)이 달 경계에서 어긋나지 않게 */
+        const nk = monthKey(d.getFullYear(), d.getMonth());
+        if (STATE.months && STATE.months[nk]) STATE.months[nk][day.key] = day;
+        continue;
+      }
       schedule[day.key] = day;
     }
   }
@@ -914,7 +980,8 @@ function regenDaySlot(day, slot) {
     };
     saveState(STATE);
   } else if (day.kind === "mwf" && slot === "metcon") {
-    if (day.metcon.benchmark || day.metcon.special) return day;
+    /* Guess 게임은 2주 규칙에 묶여 있어 재추첨 불가 */
+    if (day.metcon.benchmark || day.metcon.special || day.metcon.guess) return day;
     const T = choice([7, 8, 10, 12, 14, 15, 16, 18]);
     const lift = day.strength.lift;
     const week = { flags: {}, names: {} }; // 변형 정보 근사: 이름으로 판단

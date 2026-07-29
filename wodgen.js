@@ -127,7 +127,6 @@ const OPENS = [
   { name: "OPEN 24.3", body: "5 Rounds of\n10 Thruster 95/65\n10 C2B Pull up\n1min Rest\n5 Rounds of\n10 Thruster 135/95\n10 Muscle up", cap: 15 },
   { name: "OPEN 25.1", body: "3-6-9-12-15...\nBurpee over DB\nDB Hang clean to OH 50/35\n+ 30ft Walking Lunge 매 라운드", cap: 15 },
   { name: "OPEN 25.2", body: "21 Pull up / 42 DU / 21 Thruster 95/65\n18 C2B / 36 DU / 18 Thruster 115/75\n15 Muscle up / 30 DU / 15 Thruster 135/85", cap: 15 },
-  { name: "OPEN 25.3", body: "5 Wall walk / 50cals Row\n5 Wall walk / 25 Deadlift 225/155\n5 Wall walk / 25 Clean 155/105\n5 Wall walk / 25 Snatch 95/65\n5 Wall walk / 50cals Row", cap: 20 },
   { name: "OPEN 26.1", body: "20-30-40-66-40-30-20\nWall ball 20/14\n18 Box jump over 매 구간 사이", cap: 12 },
 ];
 
@@ -339,33 +338,46 @@ function buildRounds(T, pool, mult, opts) {
   return { body, sig: sigOf(moves, `rounds${rounds}`) };
 }
 
-const LADDERS = [
-  [21, 15, 9], [50, 40, 30, 20, 10], [10, 9, 8, 7, 6, 5, 4, 3, 2, 1],
-  [5, 10, 15, 20], [20, 16, 12, 8, 4], [30, 20, 10],
+/* 렙스킴은 미리 정해둔 "깔끔한" 패턴만 사용 — 배율 조정으로 42-30-18 같은
+   어색한 숫자를 만들지 않고, 목표 시간에 가장 가까운 패턴을 고른다.
+   번갈아 하는 동작(alt)이 포함되면 전부 짝수인 패턴만. */
+const LADDERS_ANY = [
+  [21, 15, 9], [15, 12, 9], [12, 9, 6, 3], [30, 20, 10], [15, 10, 5],
+  [50, 40, 30, 20, 10], [10, 9, 8, 7, 6, 5, 4, 3, 2, 1],
+  [5, 10, 15, 20], [20, 15, 10, 5], [25, 20, 15, 10, 5],
+];
+const LADDERS_EVEN = [
+  [30, 20, 10], [40, 30, 20, 10], [50, 40, 30, 20, 10],
+  [20, 16, 12, 8, 4], [10, 8, 6, 4, 2], [2, 4, 6, 8, 10], [10, 20, 30],
 ];
 function buildLadder(T, pool, mult, opts) {
-  const pat = choice(LADDERS);
-  const total = pat.reduce((a, b) => a + b, 0);
   const k = ri(2, 3);
   const ctx = { hasBackSquat: opts.hasBackSquat };
   /* 렙 기반 동작만 (거리 동작 제외) */
   const moves = pickMoves(pool.filter((m) => !m.unit), k, ctx);
   if (moves.length < k) return null;
-  /* 예상 시간 = 각 동작 total렙 수행 시간 합 -> 배율로 목표에 맞춤 */
-  let est = moves.reduce((s, m) => s + minutesOf(m, total * mult), 0);
-  let scale = T / est;
-  scale = Math.max(0.5, Math.min(2, scale));
-  let usePat = pat;
-  if (scale < 0.75) usePat = pat.map((x) => Math.max(1, Math.round(x / 2)));
-  else if (scale > 1.5) usePat = pat.map((x) => x * 2);
-  if (moves.some((m) => m.alt)) usePat = usePat.map((x) => (x % 2 ? x + 1 : x));
-  const body = [
-    `For Time`,
-    usePat.join("-"),
-    ...moves.map((m) => displayName(m, opts)),
-    capLine(T),
-  ].join("\n");
-  return { body, sig: sigOf(moves, `lad${usePat[0]}`) };
+  const pats = moves.some((m) => m.alt) ? LADDERS_EVEN : LADDERS_ANY;
+  /* 각 패턴의 예상 시간을 계산해 목표에 가장 가까운 것 선택 */
+  let best = null, bestDiff = Infinity, bestEst = 0;
+  for (const pat of shuffle(pats)) {
+    const total = pat.reduce((a, b) => a + b, 0);
+    const est = moves.reduce((s, m) => s + minutesOf(m, total * mult), 0);
+    const diff = Math.abs(est - T);
+    if (diff < bestDiff) { best = pat; bestDiff = diff; bestEst = est; }
+  }
+  const lines = [`For Time`, best.join("-"), ...moves.map((m) => displayName(m, opts))];
+  /* 패턴만으로 목표 시간에 크게 못 미치면 에르고 바이인/캐시아웃으로 채움 */
+  const gap = T - bestEst;
+  if (gap > T * 0.3) {
+    const fillPool = MOVES.filter((m) => m.mono && !m.erg &&
+      !(m.isRun && moves.some((x) => x.noRun)));
+    const fill = choice(fillPool);
+    const half = niceDist((fill.per2 * (gap / 2)) / 2, fill.n);
+    lines.unshift(`Buy-in: ${half}${fill.unit === "cal" ? "cals" : "m"} ${fill.n}`);
+    lines.push(`Cash-out: ${half}${fill.unit === "cal" ? "cals" : "m"} ${fill.n}`);
+  }
+  lines.push(capLine(T));
+  return { body: lines.join("\n"), sig: sigOf(moves, `lad${best[0]}-${best.length}`) };
 }
 
 function buildChipper(T, pool, mult, opts) {

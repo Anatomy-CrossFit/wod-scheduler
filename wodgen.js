@@ -199,6 +199,8 @@ function niceReps(x, opts = {}) {
 }
 function niceDist(m, moveName) {
   if (moveName === "Bike") return Math.max(5, Math.round(m / 5) * 5); // cal
+  /* 달리기: 트랙 1바퀴 = 100m — 무조건 100m 단위 (내림, 최소 100m) */
+  if (moveName === "Run") return Math.max(100, Math.floor(m / 100) * 100);
   if (m >= 400) return Math.round(m / 100) * 100;
   return Math.max(50, Math.round(m / 50) * 50);
 }
@@ -589,7 +591,8 @@ function commemorativeFor(date, isCardioDay) {
     const pool = MOVES.filter((x) => !x.single && !x.isRun && !x.unit);
     const moves = pickMoves(pool, 3, {});
     const lines = moves.map((mv) => `${niceReps(reps, { even: !!mv.alt })} ${mv.n}`);
-    const runLead = isCardioDay ? `${fire ? 1190 : 1120}m Run Buy-in\n` : "";
+    /* 상징 숫자(1190/1120)는 100m 트랙과 안 맞으니 정확한 거리가 가능한 로잉으로 */
+    const runLead = isCardioDay ? `${fire ? 1190 : 1120}m Row Buy-in\n` : "";
     return {
       title: label,
       body: [`For Time`, runLead + `${rounds} Rounds of`, ...lines, isCardioDay ? capLine(40) : capLine(17, 20)].join("\n"),

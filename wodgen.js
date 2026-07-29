@@ -153,6 +153,17 @@ const HOLIDAYS = {
   "2027-12-25": "성탄절", "2027-12-27": "대체공휴일(성탄절)",
 };
 
+/* ---------- GAMES / OPEN 첫 공개일 (KST) ----------
+   시즌 일정이 확정되면 여기를 수정/추가.
+   OPEN은 보통 목/금 공개 후 3~4일 기록 접수 — "첫 공개일"만 적는다.
+   등록된 날은 모든 배치 규칙을 무시하고 그날 전체가 해당 표기로 잡힌다. */
+const EVENT_DAYS = {
+  "2027-02-26": "OPEN 27.1", /* 예상일 - 시즌 일정 확정 후 수정 */
+  "2027-03-05": "OPEN 27.2", /* 예상일 - 시즌 일정 확정 후 수정 */
+  "2027-03-12": "OPEN 27.3", /* 예상일 - 시즌 일정 확정 후 수정 */
+  /* "2026-08-07": "GAMES",     게임스 첫 공개일 확정 시 기입 */
+};
+
 /* ---------- Mini Rox (고정 내용) ---------- */
 const MINI_ROX_BODY = [
   "Mini Rox",
@@ -238,9 +249,10 @@ function compatible(selected, cand, ctx) {
   if (ctx.hasBackSquat && cand.rig) return false;
   return true;
 }
-function pickMoves(pool, k, ctx) {
+function pickMoves(pool, k, ctx, seed) {
   const sel = [];
-  let cands = shuffle(pool);
+  if (seed) sel.push(seed); /* 달리기 필수 등 강제 포함 동작 */
+  const cands = shuffle(pool);
   for (const c of cands) {
     if (sel.length >= k) break;
     if (compatible(sel, c, ctx)) sel.push(c);
@@ -308,13 +320,15 @@ function buildMetconOnce(targetMin, opts) {
   const type = weightedPick([["ft", 0.7], ["amrap", 0.2], ["emom", 0.1]]);
 
   if (type === "emom") {
-    return opts.station && !opts.mwf
+    /* 달리기 필수면 스테이션 EMOM 제외(로테이션 중 달리기는 공간 충돌) */
+    return opts.station && !opts.mwf && !opts.requireRun
       ? buildStationEmom(targetMin, opts)
       : buildAltEmom(targetMin, pool, opts);
   }
   if (type === "amrap") return buildAmrap(targetMin, pool, mult, opts);
   /* For Time: 라운드 60% / 렙스킴 25% / 치퍼 15% (짧은 메트콘은 치퍼 제외) */
-  const sub = weightedPick([["rounds", 0.6], ["ladder", 0.25], ["chipper", opts.mwf ? 0 : 0.15]]);
+  let sub = weightedPick([["rounds", 0.6], ["ladder", 0.25], ["chipper", opts.mwf ? 0 : 0.15]]);
+  if (opts.requireRun && sub === "ladder") sub = "rounds"; /* 렙스킴은 렙 동작만이라 */
   if (sub === "ladder") return buildLadder(targetMin, pool, mult, opts);
   if (sub === "chipper") return buildChipper(targetMin, pool, mult, opts);
   return buildRounds(targetMin, pool, mult, opts);
@@ -335,7 +349,7 @@ function estOf(move, amount, mult) {
 function buildRounds(T, pool, mult, opts) {
   const k = opts.mwf ? ri(2, 3) : ri(3, 4);
   const ctx = { hasBackSquat: opts.hasBackSquat };
-  const moves = pickMoves(pool, k, ctx);
+  const moves = pickMoves(pool, k, ctx, opts.requireRun ? MOVE["Run"] : null);
   if (moves.length < k) return null;
   const roundMin = opts.mwf ? ri(2, 4) : ri(4, 6);
   const rounds = Math.max(2, Math.round(T / roundMin));
@@ -399,7 +413,7 @@ function buildLadder(T, pool, mult, opts) {
 function buildChipper(T, pool, mult, opts) {
   const k = Math.min(ri(8, 11), 11);
   const ctx = { hasBackSquat: opts.hasBackSquat };
-  const moves = pickMoves(pool, k, ctx);
+  const moves = pickMoves(pool, k, ctx, opts.requireRun ? MOVE["Run"] : null);
   if (moves.length < 8) return null;
   const per = T / moves.length;
   const amounts = moves.map((m) => amountFor(m, per, mult));
@@ -412,7 +426,7 @@ function buildChipper(T, pool, mult, opts) {
 function buildAmrap(T, pool, mult, opts) {
   const k = opts.mwf ? ri(2, 3) : ri(3, 5);
   const ctx = { hasBackSquat: opts.hasBackSquat };
-  const moves = pickMoves(pool, k, ctx);
+  const moves = pickMoves(pool, k, ctx, opts.requireRun ? MOVE["Run"] : null);
   if (moves.length < k) return null;
   const roundMin = opts.mwf ? ri(2, 3) : ri(3, 5);
   const per = roundMin / moves.length;
@@ -425,7 +439,7 @@ function buildAltEmom(T, pool, opts) {
   /* 교대 EMOM. 달리기 포함 가능(매분 전원이 같은 스테이션이므로 공간 충돌 없음) */
   const k = opts.mwf ? 2 : ri(2, 4);
   const ctx = { emom: true, hasBackSquat: opts.hasBackSquat };
-  const moves = pickMoves(pool, k, ctx);
+  const moves = pickMoves(pool, k, ctx, opts.requireRun ? MOVE["Run"] : null);
   if (moves.length < k) return null;
   const Tn = Math.round(T / k) * k;
   const labels = k === 2 ? ["홀수분", "짝수분"] : moves.map((_, i) => `${i + 1}분`);
@@ -443,7 +457,8 @@ function buildStationEmom(T, opts) {
   const rounds = T >= 2 * k * 1.5 ? 2 : 1;
   const ctx = { station: true, stationCount: k, emom: true };
   const singles = shuffle(MOVES.filter((m) => m.single)).slice(0, ri(1, 2));
-  const rest = pickMoves(MOVES.filter((m) => !m.single), k - singles.length, ctx);
+  /* 스테이션 로테이션 중 달리기는 트랙-플로어 공간 충돌이라 제외 */
+  const rest = pickMoves(MOVES.filter((m) => !m.single && !m.isRun), k - singles.length, ctx);
   const moves = shuffle(singles.concat(rest));
   if (moves.length < 10) return null;
   const lines = moves.map((m, i) => {
@@ -662,9 +677,24 @@ function generateWeek(monday, prevWeekState) {
   if (hol[mini] && !hol[mini === 2 ? 4 : 2]) mini = mini === 2 ? 4 : 2;
   week.miniRox = mini;
 
-  /* --- 기념일 확인: 공휴일 전날 > 숫자 기념일 --- */
+  /* --- GAMES/OPEN 첫 공개일: 모든 배치 규칙보다 우선 --- */
   let specialDow = null, specialWod = null;
   for (let dow = 1; dow <= 5; dow++) {
+    const ek = dateKey(dates[dow]);
+    if (!hol[dow] && EVENT_DAYS[ek]) {
+      specialDow = dow;
+      specialWod = {
+        title: EVENT_DAYS[ek],
+        body: `${EVENT_DAYS[ek]}\n\n첫 공개일\n당일 발표 후 기입`,
+        event: true,
+      };
+      break;
+    }
+  }
+
+  /* --- 기념일 확인: 공휴일 전날 > 숫자 기념일 --- */
+  for (let dow = 1; dow <= 5; dow++) {
+    if (specialWod) break;
     if (!hol[dow]) continue;
     /* 공휴일 하루 전 운동일 찾기 (같은 주 내) */
     let eve = dow - 1;
@@ -704,6 +734,15 @@ function generateWeek(monday, prevWeekState) {
     const dt = dates[dow];
     const k = dateKey(dt);
     if (hol[dow]) { days[dow] = { kind: "holiday", name: hol[dow], key: k }; continue; }
+    /* GAMES/OPEN 첫 공개일: 그날 전체를 볼드 표기 셀로 (당일 아침 연필로 기입) */
+    if (specialDow === dow && specialWod && specialWod.event) {
+      days[dow] = {
+        kind: "cardio",
+        cardio: { title: specialWod.title, body: specialWod.body, cat: "plum", special: true, event: true },
+        key: k,
+      };
+      continue;
+    }
     const isCardio = dow === 2 || dow === 4;
     const partner = partnerDows.has(dow);
 
@@ -756,6 +795,54 @@ function generateWeek(monday, prevWeekState) {
         };
       }
       days[dow] = { kind: "mwf", strength, metcon, key: k };
+    }
+  }
+
+  /* --- 주간 달리기 규칙: Mini Rox 제외, 주 내 최소 1개 와드에 100m+ 달리기 --- */
+  const runRe = /\d+m(?:\(M\))? Run|mile Run/;
+  const weekHasRun = [1, 2, 3, 4, 5].some((dw) => {
+    const d = days[dw];
+    if (!d) return false;
+    if (d.kind === "cardio") return !d.cardio.minirox && runRe.test(d.cardio.body);
+    if (d.kind === "mwf") return runRe.test(d.metcon.body);
+    return false;
+  });
+  if (!weekHasRun) {
+    /* 자유 생성 슬롯(화목 유산소 우선, 없으면 월수금 메트콘)을 달리기 필수로 재조립 */
+    const cands = [];
+    for (const dw of [2, 4]) {
+      const d = days[dw];
+      if (d && d.kind === "cardio" && !d.cardio.minirox && !d.cardio.benchmark && !d.cardio.special) cands.push(dw);
+    }
+    if (!cands.length) for (const dw of [1, 3, 5]) {
+      const d = days[dw];
+      if (d && d.kind === "mwf" && !d.metcon.benchmark && !d.metcon.special) cands.push(dw);
+    }
+    if (cands.length) {
+      const dw = choice(cands);
+      const d = days[dw];
+      if (d.kind === "cardio") {
+        const partner = !!d.cardio.partner;
+        const w = composeMetcon(choice([30, 35, 40]), { partner, requireRun: true });
+        d.cardio = {
+          title: partner ? "Partner WOD" : "",
+          body: (partner ? "Partner WOD (2인 교대)\n\n" : "") + w.body,
+          cat: partner ? "teal" : "yellow",
+          partner,
+        };
+      } else {
+        const lift = liftByDow[dw];
+        const partner = !!d.metcon.partner;
+        const w = composeMetcon(choice([7, 8, 10, 12, 14, 15, 16, 18, 20]), {
+          pool: linkedPool(lift, week), mwf: true, partner, requireRun: true,
+          hasBackSquat: week.names[lift] === "Back Squat",
+        });
+        d.metcon = {
+          cat: partner ? "teal" : "white",
+          body: (partner ? "Partner WOD (2인 교대)\n\n" : "") + w.body,
+          partner,
+        };
+      }
     }
   }
   return { week, days };

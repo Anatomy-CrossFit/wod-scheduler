@@ -7,7 +7,7 @@
 <!-- PNG/JPG 내보내기용 (GitHub Pages에서 CDN 로드 가능) -->
 <script src="https://cdn.jsdelivr.net/npm/html2canvas@1.4.1/dist/html2canvas.min.js"></script>
 <!-- 배포 시 v를 올려서 브라우저 캐시가 옛 로직을 붙잡지 않게 함 -->
-<script src="wodgen.js?v=3"></script>
+<script src="wodgen.js?v=4"></script>
 <style>
   /* html2canvas 호환을 위해 색상은 hex/rgb만 사용 (oklch 금지) */
   :root {
@@ -390,7 +390,7 @@ function renderCalendar() {
         rowS += `<td class="cell c-rest" rowspan="2" data-key="${key}" data-slot="rest">휴식</td>`;
       } else if (day.kind === "cardio") {
         const c = day.cardio;
-        rowS += `<td class="cell c-${c.cat}" rowspan="2" data-key="${key}" data-slot="cardio">${bodyHtml(c.body)}</td>`;
+        rowS += `<td class="cell c-${c.cat}${c.event ? " event-day" : ""}" rowspan="2" data-key="${key}" data-slot="cardio">${bodyHtml(c.body)}</td>`;
       } else {
         /* mwf */
         const s = day.strength, m = day.metcon;
@@ -413,6 +413,19 @@ function renderCalendar() {
   weeksEl.querySelectorAll("td.cell:not(.c-empty)").forEach((td) => {
     td.addEventListener("click", () => openModal(td.dataset.key, td.dataset.slot));
   });
+
+  /* GAMES/OPEN 첫 공개일 셀: 첫 줄(이벤트명)을 볼드로 */
+  weeksEl.querySelectorAll("td.cell.event-day").forEach((td) => boldFirstLine(td, "14px"));
+}
+
+/* 요소의 첫 텍스트 노드(첫 줄)를 볼드 처리 — DOM API 사용 */
+function boldFirstLine(el, fontSize) {
+  if (!el || !el.firstChild || el.firstChild.nodeType !== 3) return;
+  const strong = document.createElement("b");
+  strong.style.fontSize = fontSize;
+  strong.style.letterSpacing = "0.5px";
+  strong.textContent = el.firstChild.textContent;
+  el.replaceChild(strong, el.firstChild);
 }
 
 /* ── 상세 모달 ── */
@@ -438,7 +451,7 @@ function openModal(key, slot) {
       </div>`;
   } else if (slot === "cardio") {
     const c = day.cardio;
-    const label = c.minirox ? "MINI ROX" : c.benchmark || c.special ? "BENCHMARK" : c.partner ? "PARTNER" : "CARDIO";
+    const label = c.event ? "OPEN / GAMES" : c.minirox ? "MINI ROX" : c.benchmark || c.special ? "BENCHMARK" : c.partner ? "PARTNER" : "CARDIO";
     const canReroll = !(c.minirox || c.benchmark || c.special);
     modal.innerHTML = `
       <div class="m-date">${dateStr}</div>
@@ -477,6 +490,10 @@ function openModal(key, slot) {
   /* 와드 텍스트 영역 우측 하단에 연필(직접 수정) 버튼 부착 */
   if (slot === "cardio" || slot === "metcon" || slot === "strength") {
     attachEditButton(key, slot);
+  }
+  /* 이벤트일 모달도 이벤트명 볼드 — boldFirstLine은 createElement/textContent만 사용(안전한 DOM 조작) */
+  if (slot === "cardio" && day.cardio && day.cardio.event) {
+    boldFirstLine(document.querySelector("#modal .m-body"), "15px");
   }
   $("modalBg").classList.add("open");
 }

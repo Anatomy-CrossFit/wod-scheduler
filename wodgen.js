@@ -283,9 +283,11 @@ function recordSig(sig) {
    For Time 70% / AMRAP 20% / EMOM 10%
    ============================================================ */
 function composeMetcon(targetMin, opts = {}) {
-  for (let attempt = 0; attempt < 8; attempt++) {
+  for (let attempt = 0; attempt < 16; attempt++) {
     const w = buildMetconOnce(targetMin, opts);
     if (!w) continue;
+    /* 볼륨 검산: 완성본의 예상 소요시간이 목표 ±25%를 벗어나면 재조립 */
+    if (w.est && Math.abs(w.est - targetMin) > targetMin * 0.25) continue;
     if (isRecentDup(w.sig) && !chance(0.05)) continue; // 95% 재추첨
     recordSig(w.sig);
     return w;
@@ -316,9 +318,15 @@ function buildMetconOnce(targetMin, opts) {
   return buildRounds(targetMin, pool, mult, opts);
 }
 
-function capLine(targetMin) {
-  const cap = Math.min(60, Math.ceil((targetMin * 1.15) / 5) * 5);
+function capLine(estMin) {
+  /* 타임캡은 목표치가 아니라 "내용물 검산 시간" 기준 (+15% 여유) */
+  const cap = Math.min(60, Math.ceil((estMin * 1.15) / 5) * 5);
   return `Time cap ${cap}mins`;
+}
+/* 표기된 수행량의 예상 소요시간(분). 파트너는 교대 수행이라
+   같은 표기량을 mult배 빠르게 소화한다고 본다 */
+function estOf(move, amount, mult) {
+  return minutesOf(move, amount) / mult;
 }
 
 function buildRounds(T, pool, mult, opts) {
@@ -329,13 +337,16 @@ function buildRounds(T, pool, mult, opts) {
   const roundMin = opts.mwf ? ri(2, 4) : ri(4, 6);
   const rounds = Math.max(2, Math.round(T / roundMin));
   const per = roundMin / moves.length;
-  const lines = moves.map((m) => fmtLine(m, amountFor(m, per, mult), opts));
+  const amounts = moves.map((m) => amountFor(m, per, mult));
+  /* 실제 표기 렙 기준으로 재검산 */
+  const est = rounds * moves.reduce((s, m, i) => s + estOf(m, amounts[i], mult), 0);
+  const lines = moves.map((m, i) => fmtLine(m, amounts[i], opts));
   const body = [
     `${rounds} Rounds For Time`,
     ...lines,
-    capLine(T),
+    capLine(est),
   ].join("\n");
-  return { body, sig: sigOf(moves, `rounds${rounds}`) };
+  return { body, sig: sigOf(moves, `rounds${rounds}`), est };
 }
 
 /* 렙스킴은 미리 정해둔 "깔끔한" 패턴만 사용 — 배율 조정으로 42-30-18 같은
@@ -357,27 +368,29 @@ function buildLadder(T, pool, mult, opts) {
   const moves = pickMoves(pool.filter((m) => !m.unit), k, ctx);
   if (moves.length < k) return null;
   const pats = moves.some((m) => m.alt) ? LADDERS_EVEN : LADDERS_ANY;
-  /* 각 패턴의 예상 시간을 계산해 목표에 가장 가까운 것 선택 */
+  /* 각 패턴의 예상 시간(표기 렙 기준 검산)을 계산해 목표에 가장 가까운 것 선택 */
   let best = null, bestDiff = Infinity, bestEst = 0;
   for (const pat of shuffle(pats)) {
     const total = pat.reduce((a, b) => a + b, 0);
-    const est = moves.reduce((s, m) => s + minutesOf(m, total * mult), 0);
+    const est = moves.reduce((s, m) => s + estOf(m, total, mult), 0);
     const diff = Math.abs(est - T);
     if (diff < bestDiff) { best = pat; bestDiff = diff; bestEst = est; }
   }
   const lines = [`For Time`, best.join("-"), ...moves.map((m) => displayName(m, opts))];
-  /* 패턴만으로 목표 시간에 크게 못 미치면 에르고 바이인/캐시아웃으로 채움 */
+  /* 패턴만으로 목표 시간에 못 미치면 바이인/캐시아웃으로 채움 */
+  let est = bestEst;
   const gap = T - bestEst;
-  if (gap > T * 0.3) {
+  if (gap > T * 0.25) {
     const fillPool = MOVES.filter((m) => m.mono && !m.erg &&
       !(m.isRun && moves.some((x) => x.noRun)));
     const fill = choice(fillPool);
-    const half = niceDist((fill.per2 * (gap / 2)) / 2, fill.n);
-    lines.unshift(`Buy-in: ${half}${fill.unit === "cal" ? "cals" : "m"} ${fill.n}`);
-    lines.push(`Cash-out: ${half}${fill.unit === "cal" ? "cals" : "m"} ${fill.n}`);
+    const half = amountFor(fill, gap / 2, mult);
+    lines.unshift(`Buy-in: ${fmtLine(fill, half, opts)}`);
+    lines.push(`Cash-out: ${fmtLine(fill, half, opts)}`);
+    est += 2 * estOf(fill, half, mult);
   }
-  lines.push(capLine(T));
-  return { body: lines.join("\n"), sig: sigOf(moves, `lad${best[0]}-${best.length}`) };
+  lines.push(capLine(est));
+  return { body: lines.join("\n"), sig: sigOf(moves, `lad${best[0]}-${best.length}`), est };
 }
 
 function buildChipper(T, pool, mult, opts) {
@@ -386,9 +399,11 @@ function buildChipper(T, pool, mult, opts) {
   const moves = pickMoves(pool, k, ctx);
   if (moves.length < 8) return null;
   const per = T / moves.length;
-  const lines = moves.map((m) => fmtLine(m, amountFor(m, per, mult), opts));
-  const body = [`For Time (Chipper)`, ...lines, capLine(T)].join("\n");
-  return { body, sig: sigOf(moves, "chip") };
+  const amounts = moves.map((m) => amountFor(m, per, mult));
+  const est = moves.reduce((s, m, i) => s + estOf(m, amounts[i], mult), 0);
+  const lines = moves.map((m, i) => fmtLine(m, amounts[i], opts));
+  const body = [`For Time (Chipper)`, ...lines, capLine(est)].join("\n");
+  return { body, sig: sigOf(moves, "chip"), est };
 }
 
 function buildAmrap(T, pool, mult, opts) {
@@ -400,7 +415,7 @@ function buildAmrap(T, pool, mult, opts) {
   const per = roundMin / moves.length;
   const lines = moves.map((m) => fmtLine(m, amountFor(m, per, mult), opts));
   const body = [`${T}mins AMRAP`, ...lines].join("\n");
-  return { body, sig: sigOf(moves, `amrap`) };
+  return { body, sig: sigOf(moves, `amrap`), est: T };
 }
 
 function buildAltEmom(T, pool, opts) {
@@ -416,7 +431,7 @@ function buildAltEmom(T, pool, opts) {
     return `${labels[i]}: ${fmtLine(m, amt, opts)}`;
   });
   const body = [`EMOM ${Tn}`, ...lines].join("\n");
-  return { body, sig: sigOf(moves, "emom") };
+  return { body, sig: sigOf(moves, "emom"), est: Tn };
 }
 
 function buildStationEmom(T, opts) {
@@ -436,7 +451,7 @@ function buildStationEmom(T, opts) {
     ? `2 Rounds of EMOM 2mins x ${moves.length} stations`
     : `EMOM 2mins x ${moves.length} stations`;
   const body = [head, ...lines].join("\n");
-  return { body, sig: sigOf(moves, "stmom") };
+  return { body, sig: sigOf(moves, "stmom"), est: 2 * moves.length * rounds };
 }
 
 /* ============================================================
@@ -695,10 +710,12 @@ function generateWeek(monday, prevWeekState) {
       if (dow === week.miniRox && specialDow !== dow) {
         cardio = { title: "Mini Rox", body: MINI_ROX_BODY, cat: "yellow", minirox: true };
       } else if (specialDow === dow) {
-        cardio = { title: specialWod.title, body: specialWod.body, cat: "plum", special: true };
+        /* 기념일 와드: 이름을 본문 첫 줄에 */
+        cardio = { title: specialWod.title, body: `${specialWod.title}\n${specialWod.body}`, cat: "plum", special: true };
       } else if (benchDow === dow) {
+        /* 벤치마크: 이름(Murph, The Seven 등)을 본문 첫 줄에 */
         const b = longBenchOrOpen();
-        cardio = { title: b.title, body: b.body, cat: "plum", benchmark: true };
+        cardio = { title: b.title, body: `${b.title}\n${b.body}`, cat: "plum", benchmark: true };
       } else {
         const T = choice([30, 35, 40, 45, 50]);
         const w = composeMetcon(T, { partner, station: chance(0.25) });

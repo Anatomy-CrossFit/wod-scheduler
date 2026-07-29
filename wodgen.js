@@ -663,23 +663,11 @@ function longBenchOrOpen(dateStr) {
 }
 
 /* Guess my Row/Ski — 스트랭스 날 파트너 게임 메트콘, 캡 20분 고정.
-   모니터를 보지 않고 목표 거리를 맞추는 형식 */
+   룰은 모두가 알고 있으므로 이름과 캡만 표기 */
 function guessGameWod() {
   const erg = chance(0.5) ? "Row" : "Ski";
-  const variants = [
-    ["각자 번갈아 100m 정확히 맞추기 x 10회", "오차 1m당 2 Burpee (모아서 마지막에 같이)"],
-    ["111-222-333-444-555m 순서대로 맞추기 (교대)", "오차 10m당 5 Air squat"],
-    ["매 라운드 80~120m 목표를 상대가 지정", "모니터 가리고 맞추기 x 12회 (교대)", "오차 1m당 2 Sit up"],
-  ];
-  const body = [
-    `Guess my ${erg}`,
-    "",
-    "Partner WOD (2인 교대)",
-    "모니터를 보지 않고 목표 거리 맞추기",
-    ...choice(variants),
-    "Time cap 20mins",
-  ].join("\n");
-  return { cat: "pink", body, partner: true, guess: true };
+  const body = [`Guess my ${erg}`, "", "Time cap 20mins"].join("\n");
+  return { cat: "white", body, partner: true, guess: true };
 }
 
 /* ============================================================

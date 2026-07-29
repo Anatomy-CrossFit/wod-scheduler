@@ -947,7 +947,20 @@ function storeMonth(year, month, schedule) {
   saveState(STATE);
 }
 function loadMonth(year, month) {
-  return (STATE.months || {})[monthKey(year, month)] || null;
+  const sch = (STATE.months || {})[monthKey(year, month)] || null;
+  if (sch) {
+    /* 마이그레이션: 옛 형식(설명 포함) Guess 와드를 새 형식으로.
+       연필로 직접 수정한 본문("모니터" 문구 없음)은 건드리지 않는다 */
+    for (const day of Object.values(sch)) {
+      if (day && day.kind === "mwf" && day.metcon && day.metcon.guess &&
+          day.metcon.body.includes("모니터")) {
+        const erg = day.metcon.body.includes("Ski") ? "Ski" : "Row";
+        day.metcon.body = `Guess my ${erg}\n\nTime cap 20mins`;
+        day.metcon.cat = "white";
+      }
+    }
+  }
+  return sch;
 }
 function listStoredMonths() {
   return Object.keys(STATE.months || {}).sort();

@@ -194,9 +194,23 @@
   .modal .m-body {
     margin: 8px 0 18px;
     background: var(--panel); border: 1px solid var(--line);
-    border-radius: 10px; padding: 12px 14px;
+    border-radius: 10px; padding: 12px 36px 12px 14px;
     font-size: 14px; line-height: 1.6;
+    position: relative;
   }
+  .m-edit {
+    position: absolute; right: 6px; bottom: 6px;
+    background: none; border: none; cursor: pointer;
+    color: var(--muted); padding: 6px; border-radius: 6px; line-height: 0;
+  }
+  .m-edit:hover { color: var(--accent); background: var(--panel2); }
+  .m-textarea {
+    width: 100%; margin: 8px 0 18px; padding: 12px 14px;
+    background: var(--panel); border: 1px solid var(--line); border-radius: 10px;
+    font-family: inherit; font-size: 14px; line-height: 1.6; color: var(--text);
+    resize: vertical;
+  }
+  .m-textarea:focus { outline: 2px solid var(--accent-dark); }
   .modal .m-actions { display: flex; gap: 8px; flex-wrap: wrap; }
   .modal .m-actions .btn { flex: 1; padding: 10px; font-size: 13px; white-space: nowrap; }
   .modal .m-rest-note { text-align: center; color: #9aa0a6; font-weight: 800; letter-spacing: 3px; padding: 26px 0; }
@@ -379,7 +393,7 @@ function renderCalendar() {
       } else {
         /* mwf */
         const s = day.strength, m = day.metcon;
-        rowS += `<td class="cell c-${s.cat}" data-key="${key}" data-slot="strength"><div class="top">${esc(s.top)}</div>${esc(s.body)}</td>`;
+        rowS += `<td class="cell c-${s.cat}" data-key="${key}" data-slot="strength"><div class="top">${esc(s.top)}</div>${bodyHtml(s.body)}</td>`;
         rowM += `<td class="cell c-${m.cat}" data-key="${key}" data-slot="metcon">${bodyHtml(m.body)}</td>`;
       }
     }
@@ -459,9 +473,99 @@ function openModal(key, slot) {
         <button class="btn btn-primary" onclick="toggleRest('${key}')">휴식일로</button>
       </div>`;
   }
+  /* 와드 텍스트 영역 우측 하단에 연필(직접 수정) 버튼 부착 */
+  if (slot === "cardio" || slot === "metcon" || slot === "strength") {
+    attachEditButton(key, slot);
+  }
   $("modalBg").classList.add("open");
 }
 function closeModal() { $("modalBg").classList.remove("open"); }
+
+/* ── 직접 수정 (연필 아이콘) — DOM API로 구성 ── */
+function pencilSvg() {
+  const NS = "http://www.w3.org/2000/svg";
+  const svg = document.createElementNS(NS, "svg");
+  svg.setAttribute("width", "14");
+  svg.setAttribute("height", "14");
+  svg.setAttribute("viewBox", "0 0 24 24");
+  svg.setAttribute("fill", "none");
+  svg.setAttribute("stroke", "currentColor");
+  svg.setAttribute("stroke-width", "2");
+  svg.setAttribute("stroke-linecap", "round");
+  svg.setAttribute("stroke-linejoin", "round");
+  const p = document.createElementNS(NS, "path");
+  p.setAttribute("d", "M17 3a2.85 2.85 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z");
+  svg.appendChild(p);
+  return svg;
+}
+function attachEditButton(key, slot) {
+  const body = $("modal").querySelector(".m-body");
+  if (!body) return;
+  const btn = document.createElement("button");
+  btn.className = "m-edit";
+  btn.title = "직접 수정";
+  btn.setAttribute("aria-label", "직접 수정");
+  btn.appendChild(pencilSvg());
+  btn.addEventListener("click", () => startEdit(key, slot));
+  body.appendChild(btn);
+}
+function slotText(day, slot) {
+  if (slot === "cardio") return day.cardio.body;
+  if (slot === "metcon") return day.metcon.body;
+  if (slot === "strength") return day.strength.top + "\n" + day.strength.body;
+  return "";
+}
+function startEdit(key, slot) {
+  const day = schedule[key];
+  if (!day) return;
+  const [y, m, d] = key.split("-").map(Number);
+  const modal = $("modal");
+  modal.textContent = "";
+  const mk = (tag, cls, text) => {
+    const el = document.createElement(tag);
+    if (cls) el.className = cls;
+    if (text) el.textContent = text;
+    return el;
+  };
+  modal.appendChild(mk("div", "m-date", `${y}년 ${m}월 ${d}일`));
+  modal.appendChild(mk("div", "m-slot",
+    slot === "strength" ? "직접 수정 — 첫 줄은 세트 표기(5x5 등)" : "직접 수정"));
+  const ta = mk("textarea", "m-textarea");
+  ta.id = "editArea";
+  ta.spellcheck = false;
+  ta.value = slotText(day, slot);
+  modal.appendChild(ta);
+  const actions = mk("div", "m-actions");
+  const cancel = mk("button", "btn btn-ghost", "취소");
+  cancel.addEventListener("click", () => openModal(key, slot));
+  const save = mk("button", "btn btn-primary", "저장");
+  save.addEventListener("click", () => saveEdit(key, slot));
+  actions.appendChild(cancel);
+  actions.appendChild(save);
+  modal.appendChild(actions);
+  ta.style.height = Math.min(420, Math.max(160, ta.value.split("\n").length * 26 + 30)) + "px";
+  ta.focus();
+}
+function saveEdit(key, slot) {
+  const day = schedule[key];
+  const val = $("editArea").value.trim();
+  if (!val) { toast("내용이 비어 있어요"); return; }
+  if (slot === "strength") {
+    const lines = val.split("\n");
+    day.strength.top = lines[0];
+    day.strength.body = lines.slice(1).join("\n");
+  } else if (slot === "cardio") {
+    day.cardio.body = val;
+    day.cardio.edited = true;
+  } else {
+    day.metcon.body = val;
+    day.metcon.edited = true;
+  }
+  storeMonth(viewYear, viewMonth, schedule);
+  renderCalendar();
+  openModal(key, slot);
+  toast("수정한 내용을 저장했어요");
+}
 
 function toggleRest(key) {
   const day = schedule[key];

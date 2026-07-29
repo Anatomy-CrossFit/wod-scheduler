@@ -526,7 +526,11 @@ function buildStationEmom(T, opts) {
 const LIFT_WEIGHTS = [["squat", 23], ["press", 23], ["clean", 23], ["snatch", 23], ["dead", 8]];
 const LIFT_COLORS = { squat: "red", clean: "blue", snatch: "purple", dead: "orange", press: "green" };
 
-function pickWeekLifts(prevWeek) {
+function pickWeekLifts(prevWeek, nextWeek) {
+  /* 같은 구성 + 같은 순서면 충돌 (이전 주·다음 주 모두 검사) */
+  const clash = (w, order) => w && w.order &&
+    w.order.slice().sort().join() === order.slice().sort().join() &&
+    w.order.join() === order.join();
   for (let attempt = 0; attempt < 30; attempt++) {
     /* 가중치 비복원 추출 3개 */
     let pool = LIFT_WEIGHTS.slice();
@@ -537,10 +541,7 @@ function pickWeekLifts(prevWeek) {
       pool = pool.filter((e) => e[0] !== k);
     }
     const order = shuffle(lifts);
-    /* 지난주와 같은 구성이면 순서가 반드시 달라야 함 */
-    if (prevWeek && prevWeek.order &&
-        prevWeek.order.slice().sort().join() === order.slice().sort().join() &&
-        prevWeek.order.join() === order.join()) continue;
+    if (clash(prevWeek, order) || clash(nextWeek, order)) continue;
     return order;
   }
   return shuffle(["squat", "clean", "press"]);
@@ -745,7 +746,7 @@ function dateKey(dt) {
   return `${dt.getFullYear()}-${pad2(dt.getMonth() + 1)}-${pad2(dt.getDate())}`;
 }
 
-function generateWeek(monday, prevWeekState) {
+function generateWeek(monday, prevWeekState, nextWeekState) {
   const days = {};   // dow(1~5) -> day object
   const dates = {};
   for (let i = 0; i < 5; i++) {
@@ -760,8 +761,8 @@ function generateWeek(monday, prevWeekState) {
   }
   const workDows = [1, 2, 3, 4, 5].filter((d) => !hol[d]);
 
-  /* --- 스트랭스 3종 + 변형 --- */
-  const order = pickWeekLifts(prevWeekState);
+  /* --- 스트랭스 3종 + 변형 (이전·다음 주와 순서 충돌 금지) --- */
+  const order = pickWeekLifts(prevWeekState, nextWeekState);
   const week = rollVariants(order);
   week.monday = isoWeekKey(monday);
   const liftByDow = { 1: order[0], 3: order[1], 5: order[2] };
@@ -828,7 +829,8 @@ function generateWeek(monday, prevWeekState) {
 
   /* --- Guess my Row/Ski: 2주에 최소 1회, 월수금(스트랭스 날) 파트너 메트콘 ---
      지난주에 없었으면 이번 주는 필수. 있었으면 25% 확률로 또 가능 */
-  const needGuess = !(prevWeekState && prevWeekState.guess);
+  const needGuess = !(prevWeekState && prevWeekState.guess) ||
+    (nextWeekState && !nextWeekState.guess); /* 다음 주(고정)가 비었으면 이번 주 필수 */
   week.guess = false;
   let guessDow = null;
   if (needGuess || chance(0.25)) {
@@ -976,15 +978,37 @@ function generateMonthSchedule(year, month /* 0-11 */) {
     mondays.push(new Date(cursor));
     cursor.setDate(cursor.getDate() + 7);
   }
-  /* 재생성 정리: 이번 생성 범위(첫 주 월 ~ 마지막 주 금)에 찍힌 히어로/오픈
-     사용 기록은 폐기 — 버려질 배치의 기록이 쌓여 풀을 고갈시키고
-     60일 쿨다운 폴백(LRU)이 오작동하는 것을 방지. 다시 배치되면 재기록됨 */
-  const purgeStart = dateKey(mondays[0]);
-  const lastFriday = new Date(mondays[mondays.length - 1]);
-  lastFriday.setDate(lastFriday.getDate() + 4);
-  const purgeEnd = dateKey(lastFriday);
-  for (const [bn, bd] of Object.entries(STATE.benchUse)) {
-    if (bd >= purgeStart && bd <= purgeEnd) delete STATE.benchUse[bn];
+  STATE.weekDays = STATE.weekDays || {}; /* 주 단위 생성본 캐시: { weekKey: {1..5: day} } */
+  const thisKey = monthKey(year, month);
+  const monthOfDate = (d) => monthKey(d.getFullYear(), d.getMonth());
+
+  /* 경계 주 재사용 판단: 이웃 달에 걸친 주는, 그 이웃 달이 이미 생성돼 있으면
+     재생성하지 않고 그대로 재사용 — 어느 방향으로 생성하든 경계 규칙 유지 */
+  const plans = mondays.map((monday) => {
+    const wk = isoWeekKey(monday);
+    const friday = new Date(monday);
+    friday.setDate(monday.getDate() + 4);
+    let reuse = false;
+    if (STATE.weekDays[wk]) {
+      for (const edge of [monday, friday]) {
+        const mk2 = monthOfDate(edge);
+        if (mk2 !== thisKey && STATE.months && STATE.months[mk2]) reuse = true;
+      }
+    }
+    return { monday, wk, reuse };
+  });
+  const regenSet = new Set(plans.filter((p) => !p.reuse).map((p) => p.wk));
+
+  /* 재생성되는 주 범위의 벤치마크 사용 기록만 폐기 (재사용 주는 보존) —
+     버려질 배치의 기록이 풀을 고갈시켜 60일 쿨다운을 깨는 것을 방지 */
+  for (const p of plans) {
+    if (p.reuse) continue;
+    const fri = new Date(p.monday);
+    fri.setDate(p.monday.getDate() + 4);
+    const start = dateKey(p.monday), end = dateKey(fri);
+    for (const [bn, bd] of Object.entries(STATE.benchUse)) {
+      if (bd >= start && bd <= end) delete STATE.benchUse[bn];
+    }
   }
 
   /* 직전 주 상태 (localStorage) */
@@ -992,20 +1016,33 @@ function generateMonthSchedule(year, month /* 0-11 */) {
   prevMonday.setDate(prevMonday.getDate() - 7);
   let prevState = STATE.weeks[isoWeekKey(prevMonday)] || null;
 
-  for (const monday of mondays) {
-    const { week, days } = generateWeek(monday, prevState);
-    STATE.weeks[isoWeekKey(monday)] = { order: week.order, miniRox: week.miniRox, guess: week.guess };
-    prevState = { order: week.order, miniRox: week.miniRox, guess: week.guess };
+  for (const p of plans) {
+    let days;
+    if (p.reuse) {
+      days = STATE.weekDays[p.wk];
+      prevState = STATE.weeks[p.wk] || prevState;
+    } else {
+      /* 다음 주가 이번에 재생성되지 않는 기존 주라면 그 제약(리프트 순서·Guess)을 존중 */
+      const nextMonday = new Date(p.monday);
+      nextMonday.setDate(p.monday.getDate() + 7);
+      const nextWk = isoWeekKey(nextMonday);
+      const nextState = regenSet.has(nextWk) ? null : (STATE.weeks[nextWk] || null);
+      const res = generateWeek(p.monday, prevState, nextState);
+      days = res.days;
+      const wkState = { order: res.week.order, miniRox: res.week.miniRox, guess: res.week.guess };
+      STATE.weeks[p.wk] = wkState;
+      STATE.weekDays[p.wk] = days;
+      prevState = wkState;
+    }
     for (let dow = 1; dow <= 5; dow++) {
       const day = days[dow];
       if (!day) continue;
-      const d = new Date(monday);
-      d.setDate(monday.getDate() + dow - 1);
+      const d = new Date(p.monday);
+      d.setDate(p.monday.getDate() + dow - 1);
       if (d.getMonth() !== month || d.getFullYear() !== year) {
-        /* 월 경계 주: 이웃 달이 이미 저장돼 있으면 그쪽 날짜도 이번 생성본으로
-           동기화 — 주간 규칙(리프트 순서·Guess·MiniRox)이 달 경계에서 어긋나지 않게 */
-        const nk = monthKey(d.getFullYear(), d.getMonth());
-        if (STATE.months && STATE.months[nk]) STATE.months[nk][day.key] = day;
+        /* 경계 주를 새로 생성한 경우에만 이웃 달 저장본 동기화 */
+        const nk = monthOfDate(d);
+        if (!p.reuse && STATE.months && STATE.months[nk]) STATE.months[nk][day.key] = day;
         continue;
       }
       schedule[day.key] = day;
@@ -1020,6 +1057,17 @@ function monthKey(year, month) { return `${year}-${pad2(month + 1)}`; }
 function storeMonth(year, month, schedule) {
   STATE.months = STATE.months || {};
   STATE.months[monthKey(year, month)] = schedule;
+  /* 연필 수정·휴식 전환 등이 주 캐시에도 반영되도록 동기화 */
+  STATE.weekDays = STATE.weekDays || {};
+  for (const [k, day] of Object.entries(schedule)) {
+    const dt = new Date(k);
+    const dowJs = dt.getDay();
+    if (dowJs < 1 || dowJs > 5) continue;
+    const monday = new Date(dt);
+    monday.setDate(dt.getDate() - (dowJs - 1));
+    const wk = isoWeekKey(monday);
+    if (STATE.weekDays[wk]) STATE.weekDays[wk][dowJs] = day;
+  }
   saveState(STATE);
 }
 function loadMonth(year, month) {

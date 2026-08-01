@@ -65,7 +65,6 @@ const MOVES = [
   { n: "Pull up",  per2: 30, rig: true, tags: ["upper"] },
   { n: "C2B Pull up", per2: 15, rig: true, tags: ["upper"] },
   { n: "T2B",      per2: 24, rig: true, tags: ["abs"] },
-  { n: "K2E",      per2: 30, rig: true, tags: ["abs"] },
   { n: "HSPU",     per2: 20, tags: ["upper", "press"] },
   { n: "Ring dip", per2: 24, tags: ["upper", "press"] },
 

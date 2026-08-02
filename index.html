@@ -195,7 +195,7 @@
   .modal .m-body {
     margin: 8px 0 18px;
     background: var(--panel); border: 1px solid var(--line);
-    border-radius: 10px; padding: 12px 36px 12px 14px;
+    border-radius: 10px; padding: 12px 62px 12px 14px;
     font-size: 14px; line-height: 1.6;
     position: relative;
   }
@@ -205,6 +205,7 @@
     color: var(--muted); padding: 6px; border-radius: 6px; line-height: 0;
   }
   .m-edit:hover { color: var(--accent); background: var(--panel2); }
+  .m-copy { right: 34px; }
   .m-textarea {
     width: 100%; margin: 8px 0 18px; padding: 12px 14px;
     background: var(--panel); border: 1px solid var(--line); border-radius: 10px;
@@ -487,8 +488,9 @@ function openModal(key, slot) {
         <button class="btn btn-primary" onclick="toggleRest('${key}')">휴식일로</button>
       </div>`;
   }
-  /* 와드 텍스트 영역 우측 하단에 연필(직접 수정) 버튼 부착 */
+  /* 와드 텍스트 영역 우측 하단에 복사 + 연필(직접 수정) 버튼 부착 */
   if (slot === "cardio" || slot === "metcon" || slot === "strength") {
+    attachCopyButton(key, slot);
     attachEditButton(key, slot);
   }
   /* 이벤트일 모달도 이벤트명 볼드 — boldFirstLine은 createElement/textContent만 사용(안전한 DOM 조작) */
@@ -515,6 +517,55 @@ function pencilSvg() {
   p.setAttribute("d", "M17 3a2.85 2.85 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z");
   svg.appendChild(p);
   return svg;
+}
+function copySvg() {
+  const NS = "http://www.w3.org/2000/svg";
+  const svg = document.createElementNS(NS, "svg");
+  svg.setAttribute("width", "14");
+  svg.setAttribute("height", "14");
+  svg.setAttribute("viewBox", "0 0 24 24");
+  svg.setAttribute("fill", "none");
+  svg.setAttribute("stroke", "currentColor");
+  svg.setAttribute("stroke-width", "2");
+  svg.setAttribute("stroke-linecap", "round");
+  svg.setAttribute("stroke-linejoin", "round");
+  const rect = document.createElementNS(NS, "rect");
+  rect.setAttribute("x", "9"); rect.setAttribute("y", "9");
+  rect.setAttribute("width", "13"); rect.setAttribute("height", "13");
+  rect.setAttribute("rx", "2");
+  const p = document.createElementNS(NS, "path");
+  p.setAttribute("d", "M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1");
+  svg.appendChild(rect);
+  svg.appendChild(p);
+  return svg;
+}
+function attachCopyButton(key, slot) {
+  const body = $("modal").querySelector(".m-body");
+  if (!body) return;
+  const btn = document.createElement("button");
+  btn.className = "m-edit m-copy";
+  btn.title = "복사";
+  btn.setAttribute("aria-label", "복사");
+  btn.appendChild(copySvg());
+  btn.addEventListener("click", async () => {
+    const text = slotText(schedule[key], slot);
+    try {
+      await navigator.clipboard.writeText(text);
+      toast("와드를 복사했어요");
+    } catch (err) {
+      /* 클립보드 API가 안 되는 브라우저 폴백 */
+      const ta = document.createElement("textarea");
+      ta.value = text;
+      ta.style.position = "fixed";
+      ta.style.opacity = "0";
+      document.body.appendChild(ta);
+      ta.select();
+      const ok = document.execCommand("copy");
+      ta.remove();
+      toast(ok ? "와드를 복사했어요" : "복사에 실패했어요");
+    }
+  });
+  body.appendChild(btn);
 }
 function attachEditButton(key, slot) {
   const body = $("modal").querySelector(".m-body");

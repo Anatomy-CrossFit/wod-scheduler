@@ -155,6 +155,10 @@
     background: repeating-linear-gradient(45deg, #e9ebee, #e9ebee 9px, #dcdfe3 9px, #dcdfe3 18px);
     color: #9aa0a6; font-weight: 800; letter-spacing: 2px;
   }
+  .c-dayoff {
+    background: repeating-linear-gradient(45deg, #fcdada, #fcdada 9px, #f5bcbc 9px, #f5bcbc 18px);
+    color: #a83636; font-weight: 800; letter-spacing: 2px;
+  }
   .c-hol {
     background: repeating-linear-gradient(45deg, #fdeaea, #fdeaea 9px, #f7d3d3 9px, #f7d3d3 18px);
     color: #b3403f; font-weight: 800;
@@ -189,7 +193,17 @@
     max-height: 84vh; overflow-y: auto;
     padding: 22px;
     box-shadow: 0 10px 40px rgba(20,30,45,0.18);
+    position: relative;
   }
+  /* 우측 상단 빗금 마크 버튼: 회색=교대, 빨강=쉬는 날 */
+  .m-marks { position: absolute; top: 14px; right: 14px; display: flex; gap: 6px; }
+  .m-mark {
+    width: 26px; height: 26px; border-radius: 6px;
+    border: 1px solid var(--line); cursor: pointer; padding: 0;
+  }
+  .m-mark:hover { border-color: var(--muted); }
+  .m-mark.gray { background: repeating-linear-gradient(45deg, #e9ebee, #e9ebee 4px, #dcdfe3 4px, #dcdfe3 8px); }
+  .m-mark.red { background: repeating-linear-gradient(45deg, #fcdada, #fcdada 4px, #f5bcbc 4px, #f5bcbc 8px); }
   .modal .m-date { color: var(--muted); font-size: 13px; font-weight: 600; }
   .modal .m-slot { color: var(--accent); font-size: 13px; font-weight: 800; margin-top: 8px; letter-spacing: 1px; }
   .modal .m-body {
@@ -277,7 +291,8 @@
       <span><i class="sw" style="background:var(--teal)"></i>파트너</span>
       <span><i class="sw" style="background:var(--yellow)"></i>유산소</span>
       <span><i class="sw" style="background:repeating-linear-gradient(45deg,#fdeaea,#fdeaea 4px,#f7d3d3 4px,#f7d3d3 8px)"></i>공휴일</span>
-      <span><i class="sw" style="background:repeating-linear-gradient(45deg,#e9ebee,#e9ebee 4px,#dcdfe3 4px,#dcdfe3 8px)"></i>휴식</span>
+      <span><i class="sw" style="background:repeating-linear-gradient(45deg,#fcdada,#fcdada 4px,#f5bcbc 4px,#f5bcbc 8px)"></i>휴식</span>
+      <span><i class="sw" style="background:repeating-linear-gradient(45deg,#e9ebee,#e9ebee 4px,#dcdfe3 4px,#dcdfe3 8px)"></i>교대</span>
     </div>
     <div id="weeks"></div>
     <div class="cal-foot">MADE WITH <b>WOD CAL</b></div>
@@ -388,7 +403,9 @@ function renderCalendar() {
       } else if (day.kind === "holiday") {
         rowS += `<td class="cell c-hol" rowspan="2" data-key="${key}" data-slot="holiday">공휴일<span class="hn">${esc(day.name)}</span></td>`;
       } else if (day.kind === "rest") {
-        rowS += `<td class="cell c-rest" rowspan="2" data-key="${key}" data-slot="rest">휴식</td>`;
+        rowS += `<td class="cell c-dayoff" rowspan="2" data-key="${key}" data-slot="rest">휴식</td>`;
+      } else if (day.kind === "shift") {
+        rowS += `<td class="cell c-rest" rowspan="2" data-key="${key}" data-slot="shift">교대</td>`;
       } else if (day.kind === "cardio") {
         const c = day.cardio;
         rowS += `<td class="cell c-${c.cat}${c.event ? " event-day" : ""}" rowspan="2" data-key="${key}" data-slot="cardio">${bodyHtml(c.body)}</td>`;
@@ -442,10 +459,10 @@ function openModal(key, slot) {
       <div class="m-date">${dateStr}</div>
       <div class="m-rest-note">공휴일 — ${esc(day.name)}</div>
       <div class="m-actions"><button class="btn btn-ghost" onclick="closeModal()">닫기</button></div>`;
-  } else if (slot === "rest") {
+  } else if (slot === "rest" || slot === "shift") {
     modal.innerHTML = `
       <div class="m-date">${dateStr}</div>
-      <div class="m-rest-note">REST DAY</div>
+      <div class="m-rest-note">${slot === "shift" ? "교대 (근무 아님)" : "쉬는 날 (휴식)"}</div>
       <div class="m-actions">
         <button class="btn btn-ghost" onclick="closeModal()">닫기</button>
         <button class="btn btn-primary" onclick="toggleRest('${key}')">운동일로 전환</button>
@@ -461,7 +478,6 @@ function openModal(key, slot) {
       <div class="m-actions">
         <button class="btn btn-ghost" onclick="closeModal()">닫기</button>
         ${canReroll ? `<button class="btn btn-ghost" onclick="rerollDay('${key}','cardio')">다시 뽑기</button>` : ""}
-        <button class="btn btn-primary" onclick="toggleRest('${key}')">휴식일로</button>
       </div>`;
   } else if (slot === "strength") {
     const s = day.strength;
@@ -471,7 +487,6 @@ function openModal(key, slot) {
       <div class="m-body">${esc(s.top)} ${esc(s.body)}<br><span style="color:var(--muted);font-size:12px">주간 구성 제약(중복 금지·순서 규칙)에 묶여 있어 단독 재추첨은 지원하지 않아요</span></div>
       <div class="m-actions">
         <button class="btn btn-ghost" onclick="closeModal()">닫기</button>
-        <button class="btn btn-primary" onclick="toggleRest('${key}')">휴식일로</button>
       </div>`;
   } else {
     /* metcon */
@@ -485,7 +500,6 @@ function openModal(key, slot) {
       <div class="m-actions">
         <button class="btn btn-ghost" onclick="closeModal()">닫기</button>
         ${canReroll ? `<button class="btn btn-ghost" onclick="rerollDay('${key}','metcon')">다시 뽑기</button>` : ""}
-        <button class="btn btn-primary" onclick="toggleRest('${key}')">휴식일로</button>
       </div>`;
   }
   /* 와드 텍스트 영역 우측 하단에 복사 + 연필(직접 수정) 버튼 부착 */
@@ -493,6 +507,8 @@ function openModal(key, slot) {
     attachCopyButton(key, slot);
     attachEditButton(key, slot);
   }
+  /* 우측 상단 빗금 마크 버튼 (공휴일 제외 모든 날) */
+  if (slot !== "holiday") attachMarkButtons(key);
   /* 이벤트일 모달도 이벤트명 볼드 — boldFirstLine은 createElement/textContent만 사용(안전한 DOM 조작) */
   if (slot === "cardio" && day.cardio && day.cardio.event) {
     boldFirstLine(document.querySelector("#modal .m-body"), "15px");
@@ -637,8 +653,9 @@ function saveEdit(key, slot) {
 }
 
 function toggleRest(key) {
+  /* 휴식/교대 상태에서 운동일로 복원 */
   const day = schedule[key];
-  if (day && day.kind === "rest") {
+  if (day && (day.kind === "rest" || day.kind === "shift")) {
     schedule[key] = day.prev || { kind: "rest" };
   } else {
     schedule[key] = { kind: "rest", prev: day, key };
@@ -646,6 +663,32 @@ function toggleRest(key) {
   storeMonth(viewYear, viewMonth, schedule);
   closeModal();
   renderCalendar();
+}
+
+/* 우측 상단 빗금 버튼: 회색=교대, 빨강=쉬는 날 */
+function markDay(key, kind) {
+  const day = schedule[key];
+  const prev = day && (day.kind === "rest" || day.kind === "shift") ? day.prev : day;
+  schedule[key] = { kind, prev, key };
+  storeMonth(viewYear, viewMonth, schedule);
+  closeModal();
+  renderCalendar();
+}
+function attachMarkButtons(key) {
+  const modal = $("modal");
+  const wrap = document.createElement("div");
+  wrap.className = "m-marks";
+  const mkMark = (cls, title, kind) => {
+    const b = document.createElement("button");
+    b.className = "m-mark " + cls;
+    b.title = title;
+    b.setAttribute("aria-label", title);
+    b.addEventListener("click", () => markDay(key, kind));
+    wrap.appendChild(b);
+  };
+  mkMark("gray", "교대 (근무 아님)", "shift");
+  mkMark("red", "쉬는 날", "rest");
+  modal.appendChild(wrap);
 }
 function rerollDay(key, slot) {
   schedule[key] = regenDaySlot(schedule[key], slot);

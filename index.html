@@ -7,7 +7,7 @@
 <!-- PNG/JPG 내보내기용 (GitHub Pages에서 CDN 로드 가능) -->
 <script src="https://cdn.jsdelivr.net/npm/html2canvas@1.4.1/dist/html2canvas.min.js"></script>
 <!-- 배포 시 v를 올려서 브라우저 캐시가 옛 로직을 붙잡지 않게 함 -->
-<script src="wodgen.js?v=16"></script>
+<script src="wodgen.js?v=17"></script>
 <style>
   /* html2canvas 호환을 위해 색상은 hex/rgb만 사용 (oklch 금지) */
   :root {
@@ -94,6 +94,8 @@
     border: 1px solid var(--line);
   }
   .btn-ghost:hover { border-color: var(--muted); }
+  .btn-danger { background: #d94843; color: #ffffff; }
+  .btn-danger:hover { opacity: 0.9; }
   .spacer { flex: 1; }
 
   /* ── 캡처 영역 (이미지로 내보내는 부분) ── */
@@ -290,6 +292,7 @@
     <button class="btn btn-primary" id="generate">스케줄 생성</button>
     <button class="btn btn-ghost" id="shareBtn">스케줄 공유</button>
     <button class="btn btn-ghost" id="importBtn">스케줄 인풋</button>
+    <button class="btn btn-danger" id="clearBtn">스케줄 초기화</button>
   </div>
 
   <div id="capture">
@@ -910,10 +913,44 @@ function openImportModal() {
   ta.focus();
 }
 
+/* ── 스케줄 초기화: 핀 고정 와드(와 공휴일 표시)만 남기고 이 달을 비움 ── */
+function clearMonth() {
+  if (!Object.keys(schedule).length) { toast("삭제할 스케줄이 없어요"); return; }
+  if (!window.confirm(`${viewYear}년 ${viewMonth + 1}월 스케줄을 핀으로 고정한 와드만 남기고 모두 삭제할까요?`)) return;
+  const next = {};
+  for (const [k, day] of Object.entries(schedule)) {
+    if (day.kind === "holiday") { next[k] = day; continue; }
+    if (day.kind === "rest" || day.kind === "shift") {
+      if (day.pinned) next[k] = day;
+      continue;
+    }
+    if (day.kind === "cardio") {
+      if (day.cardio.pinned) next[k] = day;
+      continue;
+    }
+    if (day.kind === "mwf") {
+      const sp = !!day.strength.pinned, mp = !!day.metcon.pinned;
+      if (!sp && !mp) continue;
+      next[k] = {
+        kind: "mwf",
+        strength: sp ? day.strength : { cat: "white", top: "", body: "", lift: day.strength.lift },
+        metcon: mp ? day.metcon : { cat: "white", body: "" },
+        key: k,
+      };
+    }
+  }
+  schedule = next;
+  clearMonthWeekCache(viewYear, viewMonth, schedule);
+  storeMonth(viewYear, viewMonth, schedule);
+  renderCalendar();
+  toast("핀 고정 와드만 남기고 삭제했어요");
+}
+
 /* ── 이벤트 바인딩 ── */
 $("generate").addEventListener("click", generateSchedule);
 $("shareBtn").addEventListener("click", shareSchedule);
 $("importBtn").addEventListener("click", openImportModal);
+$("clearBtn").addEventListener("click", clearMonth);
 $("savePng").addEventListener("click", () => exportImage("png"));
 $("saveJpg").addEventListener("click", () => exportImage("jpg"));
 $("saveAll").addEventListener("click", exportAllMonths);

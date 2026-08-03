@@ -1187,6 +1187,25 @@ function listStoredMonths() {
   return Object.keys(STATE.months || {}).sort();
 }
 
+/* 스케줄 초기화 후 주 캐시 정리: 이 달에서 삭제된 날을 주 캐시에서도 제거해
+   경계 주 재사용이 지워진 와드를 되살리지 않게 한다 (남긴 날은 storeMonth가 동기화) */
+function clearMonthWeekCache(year, month, kept) {
+  STATE.weekDays = STATE.weekDays || {};
+  const days = new Date(year, month + 1, 0).getDate();
+  for (let d = 1; d <= days; d++) {
+    const dt = new Date(year, month, d);
+    const dowJs = dt.getDay();
+    if (dowJs < 1 || dowJs > 5) continue;
+    const k = dateKey(dt);
+    if (kept[k]) continue;
+    const monday = new Date(dt);
+    monday.setDate(dt.getDate() - (dowJs - 1));
+    const wk = isoWeekKey(monday);
+    if (STATE.weekDays[wk]) delete STATE.weekDays[wk][dowJs];
+  }
+  saveState(STATE);
+}
+
 /* 하루 단위 재생성 (다시 뽑기) */
 function regenDaySlot(day, slot) {
   if (day.kind === "cardio") {

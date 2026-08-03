@@ -7,7 +7,7 @@
 <!-- PNG/JPG 내보내기용 (GitHub Pages에서 CDN 로드 가능) -->
 <script src="https://cdn.jsdelivr.net/npm/html2canvas@1.4.1/dist/html2canvas.min.js"></script>
 <!-- 배포 시 v를 올려서 브라우저 캐시가 옛 로직을 붙잡지 않게 함 -->
-<script src="wodgen.js?v=15"></script>
+<script src="wodgen.js?v=16"></script>
 <style>
   /* html2canvas 호환을 위해 색상은 hex/rgb만 사용 (oklch 금지) */
   :root {
@@ -136,10 +136,24 @@
   td.rowlbl { background: #f8f9fa; font-weight: 700; font-size: 11px; color: #3c4043; }
   td.dt { background: var(--datebg); font-weight: 700; font-size: 12.5px; height: 28px; color: #14335e; }
   td.dt.today { outline: 2px solid var(--accent); outline-offset: -2px; }
-  td.cell { min-height: 60px; cursor: pointer; }
+  td.cell { min-height: 60px; cursor: pointer; position: relative; }
   td.cell:hover { filter: brightness(0.96); }
   td.cell .top { font-weight: 800; font-size: 12px; margin-bottom: 2px; }
   td.cell.c-empty { background: #f4f5f7; cursor: default; }
+  /* 셀 좌상단 핀(고정) 버튼: 고정된 와드는 스케줄 생성 시 리롤되지 않음 */
+  .pin-btn {
+    position: absolute; top: 2px; left: 2px;
+    background: none; border: none; cursor: pointer;
+    padding: 3px; line-height: 0; color: rgba(0,0,0,0.22);
+  }
+  .pin-btn:hover { color: rgba(0,0,0,0.55); }
+  .pin-btn.pinned { color: #14335e; }
+  .c-red .pin-btn, .c-blue .pin-btn, .c-purple .pin-btn, .c-orange .pin-btn,
+  .c-green .pin-btn, .c-plum .pin-btn, .c-teal .pin-btn { color: rgba(255,255,255,0.5); }
+  .c-red .pin-btn:hover, .c-blue .pin-btn:hover, .c-purple .pin-btn:hover, .c-orange .pin-btn:hover,
+  .c-green .pin-btn:hover, .c-plum .pin-btn:hover, .c-teal .pin-btn:hover { color: rgba(255,255,255,0.85); }
+  .c-red .pin-btn.pinned, .c-blue .pin-btn.pinned, .c-purple .pin-btn.pinned, .c-orange .pin-btn.pinned,
+  .c-green .pin-btn.pinned, .c-plum .pin-btn.pinned, .c-teal .pin-btn.pinned { color: #ffffff; }
 
   .c-red    { background: var(--red);    color: #fff; }
   .c-blue   { background: var(--blue);   color: #fff; }
@@ -403,17 +417,17 @@ function renderCalendar() {
       } else if (day.kind === "holiday") {
         rowS += `<td class="cell c-hol" rowspan="2" data-key="${key}" data-slot="holiday">공휴일<span class="hn">${esc(day.name)}</span></td>`;
       } else if (day.kind === "rest") {
-        rowS += `<td class="cell c-dayoff" rowspan="2" data-key="${key}" data-slot="rest">휴식</td>`;
+        rowS += `<td class="cell c-dayoff" rowspan="2" data-key="${key}" data-slot="rest">휴식${pinHtml(key, "day", !!day.pinned)}</td>`;
       } else if (day.kind === "shift") {
-        rowS += `<td class="cell c-rest" rowspan="2" data-key="${key}" data-slot="shift">교대</td>`;
+        rowS += `<td class="cell c-rest" rowspan="2" data-key="${key}" data-slot="shift">교대${pinHtml(key, "day", !!day.pinned)}</td>`;
       } else if (day.kind === "cardio") {
         const c = day.cardio;
-        rowS += `<td class="cell c-${c.cat}${c.event ? " event-day" : ""}" rowspan="2" data-key="${key}" data-slot="cardio">${bodyHtml(c.body)}</td>`;
+        rowS += `<td class="cell c-${c.cat}${c.event ? " event-day" : ""}" rowspan="2" data-key="${key}" data-slot="cardio">${bodyHtml(c.body)}${pinHtml(key, "cardio", !!c.pinned)}</td>`;
       } else {
         /* mwf */
         const s = day.strength, m = day.metcon;
-        rowS += `<td class="cell c-${s.cat}" data-key="${key}" data-slot="strength"><div class="top">${esc(s.top)}</div>${bodyHtml(s.body)}</td>`;
-        rowM += `<td class="cell c-${m.cat}" data-key="${key}" data-slot="metcon">${bodyHtml(m.body)}</td>`;
+        rowS += `<td class="cell c-${s.cat}" data-key="${key}" data-slot="strength"><div class="top">${esc(s.top)}</div>${bodyHtml(s.body)}${pinHtml(key, "strength", !!s.pinned)}</td>`;
+        rowM += `<td class="cell c-${m.cat}" data-key="${key}" data-slot="metcon">${bodyHtml(m.body)}${pinHtml(key, "metcon", !!m.pinned)}</td>`;
       }
     }
 
@@ -434,6 +448,14 @@ function renderCalendar() {
 
   /* GAMES/OPEN 첫 공개일 셀: 첫 줄(이벤트명)을 볼드로 */
   weeksEl.querySelectorAll("td.cell.event-day").forEach((td) => boldFirstLine(td, "14px"));
+
+  /* 핀 토글 — 셀 클릭(모달 열기)과 분리 */
+  weeksEl.querySelectorAll(".pin-btn").forEach((btn) => {
+    btn.addEventListener("click", (e) => {
+      e.stopPropagation();
+      togglePin(btn.dataset.key, btn.dataset.pslot);
+    });
+  });
 }
 
 /* 요소의 첫 텍스트 노드(첫 줄)를 볼드 처리 — DOM API 사용 */
@@ -444,6 +466,29 @@ function boldFirstLine(el, fontSize) {
   strong.style.letterSpacing = "0.5px";
   strong.textContent = el.firstChild.textContent;
   el.replaceChild(strong, el.firstChild);
+}
+
+/* 셀 좌상단 핀(고정) 버튼 마크업 — 위치는 CSS absolute라 셀 내용 끝에 붙임.
+   key/slot은 내부 생성 값(날짜 키·슬롯명)만 들어감 */
+function pinHtml(key, slot, pinned) {
+  const fill = pinned ? "currentColor" : "none";
+  return `<button class="pin-btn${pinned ? " pinned" : ""}" data-key="${key}" data-pslot="${slot}" title="고정 (스케줄 생성 시 유지)" aria-label="고정">` +
+    `<svg width="11" height="11" viewBox="0 0 24 24" fill="${fill}" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">` +
+    `<path d="M12 17v5"/><path d="M9 10.76a2 2 0 0 1-1.11 1.79l-1.78.9A2 2 0 0 0 5 15.24V16a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1v-.76a2 2 0 0 0-1.11-1.79l-1.78-.9A2 2 0 0 1 15 10.76V7a1 1 0 0 1 1-1 2 2 0 0 0 0-4H8a2 2 0 0 0 0 4 1 1 0 0 1 1 1z"/></svg></button>`;
+}
+function togglePin(key, slot) {
+  const day = schedule[key];
+  if (!day) return;
+  if (day.kind === "mwf") {
+    if (slot === "strength") day.strength.pinned = !day.strength.pinned;
+    else day.metcon.pinned = !day.metcon.pinned;
+  } else if (day.kind === "cardio") {
+    day.cardio.pinned = !day.cardio.pinned;
+  } else if (day.kind === "rest" || day.kind === "shift") {
+    day.pinned = !day.pinned;
+  }
+  storeMonth(viewYear, viewMonth, schedule);
+  renderCalendar();
 }
 
 /* ── 상세 모달 ── */
@@ -470,7 +515,7 @@ function openModal(key, slot) {
   } else if (slot === "cardio") {
     const c = day.cardio;
     const label = c.event ? "OPEN / GAMES" : c.minirox ? "MINI ROX" : c.benchmark || c.special ? "BENCHMARK" : c.partner ? "PARTNER" : "CARDIO";
-    const canReroll = !(c.minirox || c.benchmark || c.special);
+    const canReroll = !(c.minirox || c.benchmark || c.special || c.pinned);
     modal.innerHTML = `
       <div class="m-date">${dateStr}</div>
       <div class="m-slot">${label}</div>
@@ -491,7 +536,7 @@ function openModal(key, slot) {
   } else {
     /* metcon */
     const mIt = day.metcon;
-    const canReroll = !(mIt.benchmark || mIt.special || mIt.guess);
+    const canReroll = !(mIt.benchmark || mIt.special || mIt.guess || mIt.pinned);
     const label = mIt.guess ? "PARTNER GAME" : mIt.benchmark || mIt.special ? "BENCHMARK" : mIt.partner ? "PARTNER METCON" : "METCON";
     modal.innerHTML = `
       <div class="m-date">${dateStr}</div>

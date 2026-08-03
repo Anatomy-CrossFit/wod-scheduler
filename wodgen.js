@@ -122,7 +122,7 @@ const MWF_EXTRA = [
   { name: "Amanda", body: "9-7-5\nMuscle up\nSquat Snatch 135/95", capFix: 15, link: ["snatch"] },
   { name: "Griff",  body: "800m Run\n400m Backwards Run\n800m Run\n400m Backwards Run", capFix: 20, link: ["any"] },
 ];
-const MWF_BENCH = GIRLS.concat(MWF_EXTRA);
+/* MWF_BENCH는 OPENS 정의 뒤에서 구성 (20분 내 오픈 와드 포함) */
 
 /* ---------- 롱 벤치마크 / 히어로 / 게임즈 (화목용) ----------
    캡 20분 이하 와드는 선택 시 에르고 바이인이 자동으로 붙는다 */
@@ -172,6 +172,14 @@ const OPENS = [
   { name: "OPEN 14.5", body: "21-18-15-12-9-6-3\nThruster 95/65\nBar facing burpee", cap: 25 },
   { name: "OPEN 12.1", body: "7mins Max Burpee", cap: 7 },
 ];
+
+/* 오픈 와드는 짧아서(캡 20분 내) 월수금 벤치마크 풀에서 사용.
+   화목은 캡 30분 이상 히어로/클래식만 — 바이인으로 볼륨을 채우지 않는다 */
+const MWF_OPENS = OPENS.filter((o) => o.cap <= 20).map((o) => ({
+  name: o.name, body: o.body, capFix: o.cap,
+  noCap: /AMRAP|mins Max/.test(o.body), link: ["any"],
+}));
+const MWF_BENCH = GIRLS.concat(MWF_EXTRA, MWF_OPENS);
 
 /* ---------- 대한민국 공휴일 (대체공휴일 포함, 2025~2027) ----------
    데이터 테이블 — 연도 추가 시 여기에 이어서 넣으면 됨 */
@@ -525,53 +533,67 @@ function buildStationEmom(T, opts) {
 const LIFT_WEIGHTS = [["squat", 23], ["press", 23], ["clean", 23], ["snatch", 23], ["dead", 8]];
 const LIFT_COLORS = { squat: "red", clean: "blue", snatch: "purple", dead: "orange", press: "green" };
 
-function pickWeekLifts(prevWeek, nextWeek) {
+function pickWeekLifts(prevWeek, nextWeek, fixedPos) {
+  /* fixedPos: {0|1|2: lift} — 핀으로 고정된 요일(월=0, 수=1, 금=2)의 리프트 */
+  fixedPos = fixedPos || {};
   /* 같은 구성 + 같은 순서면 충돌 (이전 주·다음 주 모두 검사) */
   const clash = (w, order) => w && w.order &&
     w.order.slice().sort().join() === order.slice().sort().join() &&
     w.order.join() === order.join();
-  for (let attempt = 0; attempt < 30; attempt++) {
-    /* 가중치 비복원 추출 3개 */
-    let pool = LIFT_WEIGHTS.slice();
-    const lifts = [];
+  let lastOrder = null;
+  for (let attempt = 0; attempt < 60; attempt++) {
+    /* 고정 위치를 채운 뒤 나머지를 가중치 비복원 추출 */
+    let pool = LIFT_WEIGHTS.filter((e) => !Object.values(fixedPos).includes(e[0]));
+    const order = [null, null, null];
+    for (const [pos, lift] of Object.entries(fixedPos)) order[+pos] = lift;
     for (let i = 0; i < 3; i++) {
-      const k = weightedPick(pool);
-      lifts.push(k);
+      if (order[i]) continue;
+      const k = weightedPick(pool.length ? pool : LIFT_WEIGHTS);
+      order[i] = k;
       pool = pool.filter((e) => e[0] !== k);
     }
-    const order = shuffle(lifts);
+    lastOrder = order;
     if (clash(prevWeek, order) || clash(nextWeek, order)) continue;
     return order;
   }
-  return shuffle(["squat", "clean", "press"]);
+  return lastOrder || shuffle(["squat", "clean", "press"]);
 }
 
-function rollVariants(order) {
-  /* 주 전체 제약을 고려해 변형 결정 */
+function rollVariants(order, fixedByLift) {
+  /* 주 전체 제약을 고려해 변형 결정. fixedByLift: 핀으로 고정된 스트랭스 이름 */
+  const fixed = fixedByLift || {};
   const week = { order, names: {}, flags: {} };
   const hasSnatch = order.includes("snatch");
 
-  /* squat 변형 */
-  if (order.includes("squat")) {
-    if (chance(0.10)) week.flags.thruster = true;
+  /* 고정 이름에서 파생되는 주간 플래그 */
+  if (fixed.squat === "Thruster") week.flags.thruster = true;
+  else if (fixed.squat) week.flags.squatVar = fixed.squat;
+  if (fixed.clean && fixed.clean.indexOf("Clean & Jerk") >= 0) week.flags.cnj = true;
+  if (fixed.press) week.flags.pressVar = fixed.press;
+  const pinnedPushPress = fixed.press && fixed.press !== "Strict Press";
+
+  /* squat 변형 (고정 아니면 롤. 쓰러스터는 C&J·푸시계열 고정 주에 불가) */
+  if (order.includes("squat") && !fixed.squat) {
+    if (!week.flags.cnj && !pinnedPushPress && chance(0.10)) week.flags.thruster = true;
     else {
       const r = R();
       week.flags.squatVar = r < 0.85 ? "Back Squat" : r < 0.95 ? "Front Squat" : "Overhead Squat";
       if (week.flags.squatVar === "Overhead Squat" && hasSnatch) week.flags.squatVar = "Back Squat"; // OHS 주에는 스내치 불가
     }
   }
-  /* clean 변형: 20% C&J (쓰러스터 주면 불가) */
-  if (order.includes("clean")) {
-    if (!week.flags.thruster && chance(0.20)) week.flags.cnj = true;
+  /* clean 변형: 20% C&J (쓰러스터 주·푸시계열 고정 주에는 불가) */
+  if (order.includes("clean") && !fixed.clean) {
+    if (!week.flags.thruster && !pinnedPushPress && chance(0.20)) week.flags.cnj = true;
   }
   /* press 변형: 1/3씩. C&J·쓰러스터 주에는 Strict만 */
-  if (order.includes("press")) {
+  if (order.includes("press") && !fixed.press) {
     if (week.flags.cnj || week.flags.thruster) week.flags.pressVar = "Strict Press";
     else week.flags.pressVar = choice(["Strict Press", "Push Press", "Push Jerk"]);
   }
-  /* 이름 결정 */
+  /* 이름 결정 (고정 이름은 그대로) */
   const prefixRoll = () => { const r = R(); return r < 0.8 ? "" : r < 0.9 ? "Power " : "Squat "; };
   for (const lift of order) {
+    if (fixed[lift]) { week.names[lift] = fixed[lift]; continue; }
     let nm;
     if (lift === "squat") nm = week.flags.thruster ? "Thruster" : week.flags.squatVar;
     else if (lift === "dead") nm = "Deadlift";
@@ -694,35 +716,33 @@ function girlsFor(lift, week, dateStr) {
   return { title: g.name, body: cap ? `${g.body}\n${cap}` : g.body, cat: "plum" };
 }
 function longBenchOrOpen(dateStr) {
-  /* 같은 히어로/오픈 와드는 60일(2달) 이내 재등장 금지 */
+  /* 화목 벤치마크: 온전한 수행 자체가 기록의 의미 — 바이인/캐시아웃 금지.
+     캡 30분 미만 와드는 후보에서 제외. 같은 와드는 60일 이내 재등장 금지 */
   const d0 = new Date(dateStr).getTime();
   const fresh = (n) => {
     const last = STATE.benchUse[n];
     return !last || Math.abs(d0 - new Date(last).getTime()) >= 60 * 86400000;
   };
-  let heroes = LONG_BENCH.filter((b) => fresh(b.name));
-  let opens = OPENS.filter((o) => fresh(o.name));
-  if (!heroes.length && !opens.length) {
+  /* The Seven은 7/7 기념일에 예약 — 평일 7/7 앞뒤 60일에는 랜덤 선택 금지 */
+  const nearSeven = () => {
+    const d = new Date(dateStr);
+    for (const yy of [d.getFullYear() - 1, d.getFullYear(), d.getFullYear() + 1]) {
+      const s = new Date(yy, 6, 7);
+      if (s.getDay() === 0 || s.getDay() === 6) continue; /* 주말 7/7이면 기념 와드 없음 */
+      if (Math.abs(d - s) / 86400000 < 60) return true;
+    }
+    return false;
+  };
+  const pool = LONG_BENCH.filter((b) =>
+    b.cap >= 30 && !(b.name === "The Seven" && nearSeven()));
+  let cands = pool.filter((b) => fresh(b.name));
+  if (!cands.length) {
     /* 전부 최근 사용 -> 가장 오래전에 쓴 것으로 대체 */
-    const all = LONG_BENCH.concat(OPENS);
-    const lru = all.reduce((a, b) =>
-      new Date(STATE.benchUse[a.name]) <= new Date(STATE.benchUse[b.name]) ? a : b);
-    if (LONG_BENCH.includes(lru)) heroes = [lru]; else opens = [lru];
+    cands = [pool.reduce((a, b) =>
+      new Date(STATE.benchUse[a.name] || 0) <= new Date(STATE.benchUse[b.name] || 0) ? a : b)];
   }
-  const useHero = heroes.length && (!opens.length || chance(0.6));
-  const b = useHero ? choice(heroes) : choice(opens);
-  /* 짧은 와드(캡 20분 이하)는 화목 볼륨에 맞게 에르고 바이인을 앞에 붙임
-     (공간동작이 흔해서 바이인은 에르고로만) */
-  let body, capNote;
-  if (b.cap <= 20) {
-    const buyin = choice(["2000m Row Buy-in", "1500m Ski Buy-in", "40cals Bike Buy-in"]);
-    body = `${buyin}\n${b.body}`;
-    capNote = `Time cap ${b.cap}mins (본 와드)`;
-  } else {
-    body = b.body;
-    capNote = `Time cap ${b.cap}mins`;
-  }
-  const out = { title: b.name, body: `${body}\n${capNote}`, cat: "plum" };
+  const b = choice(cands);
+  const out = { title: b.name, body: `${b.body}\nTime cap ${b.cap}mins`, cat: "plum" };
   STATE.benchUse[out.title] = dateStr;
   return out;
 }
@@ -745,7 +765,8 @@ function dateKey(dt) {
   return `${dt.getFullYear()}-${pad2(dt.getMonth() + 1)}-${pad2(dt.getDate())}`;
 }
 
-function generateWeek(monday, prevWeekState, nextWeekState) {
+function generateWeek(monday, prevWeekState, nextWeekState, pins) {
+  pins = pins || {}; /* {dow: 기존 day 객체} — 핀 고정된 날 (그대로 유지, 규칙이 이에 맞춰짐) */
   const days = {};   // dow(1~5) -> day object
   const dates = {};
   for (let i = 0; i < 5; i++) {
@@ -760,9 +781,29 @@ function generateWeek(monday, prevWeekState, nextWeekState) {
   }
   const workDows = [1, 2, 3, 4, 5].filter((d) => !hol[d]);
 
-  /* --- 스트랭스 3종 + 변형 (이전·다음 주와 순서 충돌 금지) --- */
-  const order = pickWeekLifts(prevWeekState, nextWeekState);
-  const week = rollVariants(order);
+  /* --- 핀 고정 정보 수집 --- */
+  const pinnedDows = new Set(Object.keys(pins).map(Number));
+  const posOfDow = { 1: 0, 3: 1, 5: 2 };
+  const fixedPos = {}, fixedNames = {};
+  for (const ds of Object.keys(pins)) {
+    const dow = +ds, pd = pins[dow];
+    if (pd.kind === "mwf") {
+      fixedPos[posOfDow[dow]] = pd.strength.lift;
+      if (pd.strength.pinned) fixedNames[pd.strength.lift] = pd.strength.body;
+    }
+  }
+  const pinnedBench = Object.values(pins).some((d2) =>
+    (d2.kind === "cardio" && (d2.cardio.benchmark || d2.cardio.special)) ||
+    (d2.kind === "mwf" && d2.metcon && (d2.metcon.benchmark || d2.metcon.special)));
+  const pinnedPartner = Object.values(pins).some((d2) =>
+    (d2.kind === "cardio" && d2.cardio.partner) ||
+    (d2.kind === "mwf" && d2.metcon && d2.metcon.partner));
+  const pinnedGuess = Object.values(pins).some((d2) =>
+    d2.kind === "mwf" && d2.metcon && d2.metcon.guess);
+
+  /* --- 스트랭스 3종 + 변형 (이전·다음 주와 순서 충돌 금지, 핀 위치 고정) --- */
+  const order = pickWeekLifts(prevWeekState, nextWeekState, fixedPos);
+  const week = rollVariants(order, fixedNames);
   week.monday = isoWeekKey(monday);
   const liftByDow = { 1: order[0], 3: order[1], 5: order[2] };
 
@@ -772,6 +813,13 @@ function generateWeek(monday, prevWeekState, nextWeekState) {
     mini = chance(0.25) ? prevWeekState.miniRox : (prevWeekState.miniRox === 2 ? 4 : 2);
   } else mini = choice([2, 4]);
   if (hol[mini] && !hol[mini === 2 ? 4 : 2]) mini = mini === 2 ? 4 : 2;
+  /* 핀 고려: 핀된 Mini Rox가 있으면 그 요일, 핀된 다른 내용이 자리를 차지하면 반대 요일로 */
+  const pinnedMini = [2, 4].find((d2) => pins[d2] && pins[d2].kind === "cardio" && pins[d2].cardio.minirox);
+  if (pinnedMini) mini = pinnedMini;
+  else if (pins[mini]) {
+    const other = mini === 2 ? 4 : 2;
+    mini = (!pins[other] && !hol[other]) ? other : null;
+  }
   week.miniRox = mini;
 
   /* --- GAMES/OPEN 첫 공개일: 모든 배치 규칙보다 우선 --- */
@@ -807,33 +855,38 @@ function generateWeek(monday, prevWeekState, nextWeekState) {
       if (c) { specialDow = dow; specialWod = c; break; }
     }
   }
+  /* 핀 걸린 날에는 기념일/이벤트를 배치하지 않음 — 사용자 고정이 우선 */
+  if (specialDow !== null && pins[specialDow]) { specialDow = null; specialWod = null; }
   /* 기념일이 Mini Rox 요일과 겹치면 Mini Rox를 반대 요일로 */
   if (specialDow === mini) {
     const other = mini === 2 ? 4 : 2;
     if (!hol[other]) week.miniRox = other;
   }
 
-  /* --- 벤치마크 요일 (기념일 없을 때만 랜덤 선택) --- */
+  /* --- 벤치마크 요일 (핀에 이미 벤치마크가 있으면 충족, 핀 날 제외) --- */
   let benchDow = specialDow;
-  if (benchDow == null) {
-    const cands = workDows.filter((d) => d !== week.miniRox);
+  if (benchDow === null && !pinnedBench) {
+    const cands = workDows.filter((d) => d !== week.miniRox && !pinnedDows.has(d));
     benchDow = cands.length ? choice(cands) : null;
   }
 
-  /* --- 파트너 요일: 벤치마크·Mini Rox·공휴일 제외 후 최소 1개 + 각 15% --- */
-  const partnerEligible = workDows.filter((d) => d !== week.miniRox && d !== benchDow);
+  /* --- 파트너 요일: 벤치마크·Mini Rox·공휴일·핀 제외 후 최소 1개 + 각 15%
+     (핀에 파트너 와드가 있으면 최소 1개는 충족) --- */
+  const partnerEligible = workDows.filter((d) =>
+    d !== week.miniRox && d !== benchDow && !pinnedDows.has(d));
   const partnerDows = new Set();
-  if (partnerEligible.length) partnerDows.add(choice(partnerEligible));
+  if (!pinnedPartner && partnerEligible.length) partnerDows.add(choice(partnerEligible));
   for (const d of partnerEligible) if (chance(0.15)) partnerDows.add(d);
 
   /* --- Guess my Row/Ski: 2주에 최소 1회, 월수금(스트랭스 날) 파트너 메트콘 ---
      지난주에 없었으면 이번 주는 필수. 있었으면 25% 확률로 또 가능 */
   const needGuess = !(prevWeekState && prevWeekState.guess) ||
     (nextWeekState && !nextWeekState.guess); /* 다음 주(고정)가 비었으면 이번 주 필수 */
-  week.guess = false;
+  week.guess = pinnedGuess; /* 핀에 Guess가 있으면 이번 주 충족 */
   let guessDow = null;
-  if (needGuess || chance(0.25)) {
-    const mwfCands = [1, 3, 5].filter((d) => !hol[d] && d !== benchDow && d !== specialDow);
+  if (!pinnedGuess && (needGuess || chance(0.25))) {
+    const mwfCands = [1, 3, 5].filter((d) =>
+      !hol[d] && d !== benchDow && d !== specialDow && !pinnedDows.has(d));
     if (mwfCands.length) {
       guessDow = choice(mwfCands);
       partnerDows.add(guessDow);
@@ -846,6 +899,29 @@ function generateWeek(monday, prevWeekState, nextWeekState) {
     const dt = dates[dow];
     const k = dateKey(dt);
     if (hol[dow]) { days[dow] = { kind: "holiday", name: hol[dow], key: k }; continue; }
+    /* 핀 고정된 날: 내용 유지. MWF는 핀 안 된 슬롯만 재생성 */
+    if (pins[dow]) {
+      const pd = pins[dow];
+      if (pd.kind === "mwf") {
+        const lift = pd.strength.lift;
+        const strength = pd.strength.pinned
+          ? pd.strength
+          : { cat: LIFT_COLORS[lift], top: "5x5", body: week.names[lift], lift };
+        let metcon = pd.metcon;
+        if (!pd.metcon.pinned) {
+          const T = choice([7, 8, 10, 12, 14, 15, 16, 18]);
+          const w = composeMetcon(T, {
+            pool: linkedPool(lift, week), mwf: true,
+            hasBackSquat: strength.body === "Back Squat",
+          });
+          metcon = { cat: "white", body: w.body };
+        }
+        days[dow] = { kind: "mwf", strength, metcon, key: k };
+      } else {
+        days[dow] = pd; /* cardio·휴식·교대는 통째로 유지 */
+      }
+      continue;
+    }
     /* GAMES/OPEN 첫 공개일: 그날 전체를 볼드 표기 셀로 (당일 아침 연필로 기입) */
     if (specialDow === dow && specialWod && specialWod.event) {
       days[dow] = {
@@ -926,11 +1002,11 @@ function generateWeek(monday, prevWeekState, nextWeekState) {
     const cands = [];
     for (const dw of [2, 4]) {
       const d = days[dw];
-      if (d && d.kind === "cardio" && !d.cardio.minirox && !d.cardio.benchmark && !d.cardio.special) cands.push(dw);
+      if (d && d.kind === "cardio" && !d.cardio.minirox && !d.cardio.benchmark && !d.cardio.special && !d.cardio.pinned) cands.push(dw);
     }
     if (!cands.length) for (const dw of [1, 3, 5]) {
       const d = days[dw];
-      if (d && d.kind === "mwf" && !d.metcon.benchmark && !d.metcon.special && !d.metcon.guess) cands.push(dw);
+      if (d && d.kind === "mwf" && !d.metcon.benchmark && !d.metcon.special && !d.metcon.guess && !d.metcon.pinned) cands.push(dw);
     }
     if (cands.length) {
       const dw = choice(cands);
@@ -958,6 +1034,14 @@ function generateWeek(monday, prevWeekState, nextWeekState) {
         };
       }
     }
+  }
+  /* 핀 고정된 벤치마크/기념일은 사용 기록 재기록 (재생성 purge에서 지워진 것 복원) */
+  for (const ds of Object.keys(pins)) {
+    const pd = pins[+ds];
+    let t = null;
+    if (pd.kind === "cardio" && (pd.cardio.benchmark || pd.cardio.special)) t = pd.cardio.body.split("\n")[0];
+    if (pd.kind === "mwf" && pd.metcon && (pd.metcon.benchmark || pd.metcon.special)) t = pd.metcon.body.split("\n")[0];
+    if (t) STATE.benchUse[t.replace(" (7/7)", "")] = pd.key;
   }
   return { week, days };
 }
@@ -1026,7 +1110,21 @@ function generateMonthSchedule(year, month /* 0-11 */) {
       nextMonday.setDate(p.monday.getDate() + 7);
       const nextWk = isoWeekKey(nextMonday);
       const nextState = regenSet.has(nextWk) ? null : (STATE.weeks[nextWk] || null);
-      const res = generateWeek(p.monday, prevState, nextState);
+      /* 핀 고정된 날 수집: 이전 생성본(주 캐시)에서 핀 플래그가 있는 날만 유지 */
+      const prevDays = STATE.weekDays[p.wk];
+      const pins = {};
+      if (prevDays) {
+        for (let dw = 1; dw <= 5; dw++) {
+          const d2 = prevDays[dw];
+          if (!d2) continue;
+          const has =
+            d2.kind === "mwf" ? !!(d2.strength.pinned || (d2.metcon && d2.metcon.pinned)) :
+            d2.kind === "cardio" ? !!d2.cardio.pinned :
+            (d2.kind === "rest" || d2.kind === "shift") ? !!d2.pinned : false;
+          if (has) pins[dw] = d2;
+        }
+      }
+      const res = generateWeek(p.monday, prevState, nextState, pins);
       days = res.days;
       const wkState = { order: res.week.order, miniRox: res.week.miniRox, guess: res.week.guess };
       STATE.weeks[p.wk] = wkState;
@@ -1092,7 +1190,7 @@ function listStoredMonths() {
 /* 하루 단위 재생성 (다시 뽑기) */
 function regenDaySlot(day, slot) {
   if (day.kind === "cardio") {
-    if (day.cardio.minirox || day.cardio.benchmark || day.cardio.special) return day;
+    if (day.cardio.pinned || day.cardio.minirox || day.cardio.benchmark || day.cardio.special) return day;
     const T = choice([30, 35, 40]);
     const partner = !!day.cardio.partner;
     const w = composeMetcon(T, { partner, station: chance(0.25) });
@@ -1104,8 +1202,8 @@ function regenDaySlot(day, slot) {
     };
     saveState(STATE);
   } else if (day.kind === "mwf" && slot === "metcon") {
-    /* Guess 게임은 2주 규칙에 묶여 있어 재추첨 불가 */
-    if (day.metcon.benchmark || day.metcon.special || day.metcon.guess) return day;
+    /* Guess 게임은 2주 규칙에, 핀은 사용자 고정에 묶여 있어 재추첨 불가 */
+    if (day.metcon.pinned || day.metcon.benchmark || day.metcon.special || day.metcon.guess) return day;
     const T = choice([7, 8, 10, 12, 14, 15, 16, 18]);
     const lift = day.strength.lift;
     const week = { flags: {}, names: {} }; // 변형 정보 근사: 이름으로 판단

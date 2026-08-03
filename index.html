@@ -866,11 +866,38 @@ async function unpackSchedule(code) {
   return JSON.parse(new TextDecoder().decode(out));
 }
 
+/* 공유용 슬림화: 뷰어/인풋에 필요 없는 내부 필드 제거로 링크 길이 축소 */
+function slimDays(days) {
+  const out = {};
+  for (const [k, day] of Object.entries(days)) {
+    const d = JSON.parse(JSON.stringify(day));
+    delete d.key;
+    delete d.prev;
+    delete d.pinned;
+    if (d.strength) delete d.strength.pinned;
+    if (d.metcon) { delete d.metcon.pinned; delete d.metcon.edited; }
+    if (d.cardio) { delete d.cardio.pinned; delete d.cardio.edited; delete d.cardio.title; }
+    out[k] = d;
+  }
+  return out;
+}
+/* 단축 링크 (TinyURL) — 넘기는 주소는 우리가 만든 뷰어 링크 고정. 실패하면 원본으로 폴백 */
+async function shortenLink(link) {
+  try {
+    const res = await fetch("https://tinyurl.com/api-create.php?url=" + encodeURIComponent(link));
+    const t = (await res.text()).trim();
+    if (res.ok && /^https:\/\/tinyurl\.com\//.test(t)) return t;
+  } catch (err) {}
+  return null;
+}
+
 async function shareSchedule() {
   if (!Object.keys(schedule).length) { toast("공유할 스케줄이 없어요 (먼저 생성하세요)"); return; }
-  const code = await packSchedule({ v: 1, y: viewYear, m: viewMonth, days: schedule });
+  const code = await packSchedule({ v: 1, y: viewYear, m: viewMonth, days: slimDays(schedule) });
   /* 공유는 보기 전용 뷰어(생성·인풋 불가, 생성기와 무관한 랜덤 주소)로 연결 */
-  const link = "https://wodviewer.github.io/#s=" + code;
+  const long = "https://wodviewer.github.io/#s=" + code;
+  toast("공유 링크 만드는 중...");
+  const link = (await shortenLink(long)) || long;
   try {
     await navigator.clipboard.writeText(link);
     toast("공유 링크를 복사했어요 - 붙여넣어 전달하세요");
@@ -901,6 +928,8 @@ function importSchedule(data) {
     return;
   }
   schedule = data.days;
+  /* 슬림 공유본은 key 필드가 빠져 있으므로 복원 */
+  for (const [k, d] of Object.entries(schedule)) if (d && !d.key) d.key = k;
   storeMonth(viewYear, viewMonth, schedule);
   renderCalendar();
   toast(`${data.y}년 ${data.m + 1}월 공유 스케줄을 불러왔어요`);

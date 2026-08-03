@@ -1065,27 +1065,29 @@ function generateMonthSchedule(year, month /* 0-11 */) {
   const thisKey = monthKey(year, month);
   const monthOfDate = (d) => monthKey(d.getFullYear(), d.getMonth());
 
-  /* 경계 주 재사용 판단: 이웃 달에 걸친 주는, 그 이웃 달이 이미 생성돼 있으면
-     재생성하지 않고 그대로 재사용 — 어느 방향으로 생성하든 경계 규칙 유지 */
+  /* 경계 주 처리: 이웃 달에 이미 생성돼 있는 날은 "이미 한 운동"으로 간주해
+     통째로 고정하고, 이 달에 속한 날들만 그 고정에 맞춰 재생성한다.
+     (예: 8월에 7월을 재생성하면 6/29·6/30은 그대로 두고 7/1~7/3만 교체) */
   const plans = mondays.map((monday) => {
     const wk = isoWeekKey(monday);
-    const friday = new Date(monday);
-    friday.setDate(monday.getDate() + 4);
-    let reuse = false;
+    const neighborFixed = {};
     if (STATE.weekDays[wk]) {
-      for (const edge of [monday, friday]) {
-        const mk2 = monthOfDate(edge);
-        if (mk2 !== thisKey && STATE.months && STATE.months[mk2]) reuse = true;
+      for (let dw = 1; dw <= 5; dw++) {
+        const d2 = new Date(monday);
+        d2.setDate(monday.getDate() + dw - 1);
+        const mk2 = monthOfDate(d2);
+        if (mk2 !== thisKey && STATE.months && STATE.months[mk2] && STATE.weekDays[wk][dw]) {
+          neighborFixed[dw] = STATE.weekDays[wk][dw];
+        }
       }
     }
-    return { monday, wk, reuse };
+    return { monday, wk, neighborFixed };
   });
-  const regenSet = new Set(plans.filter((p) => !p.reuse).map((p) => p.wk));
+  const regenSet = new Set(plans.map((p) => p.wk));
 
-  /* 재생성되는 주 범위의 벤치마크 사용 기록만 폐기 (재사용 주는 보존) —
-     버려질 배치의 기록이 풀을 고갈시켜 60일 쿨다운을 깨는 것을 방지 */
+  /* 재생성 범위의 벤치마크 사용 기록 폐기 — 이웃 달 고정 날의 기록은
+     generateWeek의 핀 재기록이 복원한다 */
   for (const p of plans) {
-    if (p.reuse) continue;
     const fri = new Date(p.monday);
     fri.setDate(p.monday.getDate() + 4);
     const start = dateKey(p.monday), end = dateKey(fri);
@@ -1100,46 +1102,51 @@ function generateMonthSchedule(year, month /* 0-11 */) {
   let prevState = STATE.weeks[isoWeekKey(prevMonday)] || null;
 
   for (const p of plans) {
-    let days;
-    if (p.reuse) {
-      days = STATE.weekDays[p.wk];
-      prevState = STATE.weeks[p.wk] || prevState;
-    } else {
-      /* 다음 주가 이번에 재생성되지 않는 기존 주라면 그 제약(리프트 순서·Guess)을 존중 */
-      const nextMonday = new Date(p.monday);
-      nextMonday.setDate(p.monday.getDate() + 7);
-      const nextWk = isoWeekKey(nextMonday);
-      const nextState = regenSet.has(nextWk) ? null : (STATE.weeks[nextWk] || null);
-      /* 핀 고정된 날 수집: 이전 생성본(주 캐시)에서 핀 플래그가 있는 날만 유지 */
-      const prevDays = STATE.weekDays[p.wk];
-      const pins = {};
-      if (prevDays) {
-        for (let dw = 1; dw <= 5; dw++) {
-          const d2 = prevDays[dw];
-          if (!d2) continue;
-          const has =
-            d2.kind === "mwf" ? !!(d2.strength.pinned || (d2.metcon && d2.metcon.pinned)) :
-            d2.kind === "cardio" ? !!d2.cardio.pinned :
-            (d2.kind === "rest" || d2.kind === "shift") ? !!d2.pinned : false;
-          if (has) pins[dw] = d2;
-        }
+    /* 다음 주가 이번 생성 범위 밖의 기존 주라면 그 제약(리프트 순서·Guess)을 존중 */
+    const nextMonday = new Date(p.monday);
+    nextMonday.setDate(p.monday.getDate() + 7);
+    const nextWk = isoWeekKey(nextMonday);
+    const nextState = regenSet.has(nextWk) ? null : (STATE.weeks[nextWk] || null);
+
+    /* 핀 수집: 사용자 핀(이 달 날) + 이웃 달 고정 날(하루 전체 강제 핀) */
+    const prevDays = STATE.weekDays[p.wk];
+    const pins = {};
+    if (prevDays) {
+      for (let dw = 1; dw <= 5; dw++) {
+        const d2 = prevDays[dw];
+        if (!d2) continue;
+        const has =
+          d2.kind === "mwf" ? !!(d2.strength.pinned || (d2.metcon && d2.metcon.pinned)) :
+          d2.kind === "cardio" ? !!d2.cardio.pinned :
+          (d2.kind === "rest" || d2.kind === "shift") ? !!d2.pinned : false;
+        if (has) pins[dw] = d2;
       }
-      const res = generateWeek(p.monday, prevState, nextState, pins);
-      days = res.days;
-      const wkState = { order: res.week.order, miniRox: res.week.miniRox, guess: res.week.guess };
-      STATE.weeks[p.wk] = wkState;
-      STATE.weekDays[p.wk] = days;
-      prevState = wkState;
     }
+    const fixedDows = new Set();
+    for (const dwS of Object.keys(p.neighborFixed)) {
+      const dw = +dwS;
+      fixedDows.add(dw);
+      pins[dw] = forcePinnedClone(p.neighborFixed[dw]);
+    }
+
+    const res = generateWeek(p.monday, prevState, nextState, pins);
+    const days = res.days;
+    /* 이웃 달 고정 날은 원본 그대로 복원 (강제 핀 플래그가 새어나가지 않게) */
+    for (const dw of fixedDows) days[dw] = p.neighborFixed[dw];
+    const wkState = { order: res.week.order, miniRox: res.week.miniRox, guess: res.week.guess };
+    STATE.weeks[p.wk] = wkState;
+    STATE.weekDays[p.wk] = days;
+    prevState = wkState;
+
     for (let dow = 1; dow <= 5; dow++) {
       const day = days[dow];
       if (!day) continue;
       const d = new Date(p.monday);
       d.setDate(p.monday.getDate() + dow - 1);
       if (d.getMonth() !== month || d.getFullYear() !== year) {
-        /* 경계 주를 새로 생성한 경우에만 이웃 달 저장본 동기화 */
+        /* 이웃 달 날짜: 고정한 날은 건드리지 않고, 새로 생성된 날만 동기화 */
         const nk = monthOfDate(d);
-        if (!p.reuse && STATE.months && STATE.months[nk]) STATE.months[nk][day.key] = day;
+        if (!fixedDows.has(dow) && STATE.months && STATE.months[nk]) STATE.months[nk][day.key] = day;
         continue;
       }
       schedule[day.key] = day;
@@ -1147,6 +1154,16 @@ function generateMonthSchedule(year, month /* 0-11 */) {
   }
   saveState(STATE);
   return schedule;
+}
+
+/* 이웃 달 고정용: 하루 전체를 핀 상태로 취급하는 얕은 클론 */
+function forcePinnedClone(d) {
+  if (d.kind === "mwf") {
+    return { ...d, strength: { ...d.strength, pinned: true }, metcon: { ...d.metcon, pinned: true } };
+  }
+  if (d.kind === "cardio") return { ...d, cardio: { ...d.cardio, pinned: true } };
+  if (d.kind === "rest" || d.kind === "shift") return { ...d, pinned: true };
+  return d;
 }
 
 /* ---------- 월별 스케줄 보관 (월 이동·새로고침에도 유지) ---------- */

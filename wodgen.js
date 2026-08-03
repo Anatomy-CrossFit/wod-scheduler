@@ -65,7 +65,7 @@ const MOVES = [
   { n: "Pull up",  per2: 30, rig: true, tags: ["upper"] },
   { n: "C2B Pull up", per2: 15, rig: true, tags: ["upper"] },
   { n: "T2B",      per2: 24, rig: true, tags: ["abs"] },
-  { n: "HSPU",     per2: 20, tags: ["upper", "press"] },
+  /* HSPU·Muscle up은 벤치마크 원문에만 — 생성 와드는 대중적인 동작으로 */
   { n: "Ring dip", per2: 24, tags: ["upper", "press"] },
 
   /* 바벨·DB는 파운드 표기(시트 관례), KB는 kg */
@@ -350,6 +350,8 @@ function recordSig(sig) {
    For Time 70% / AMRAP 20% / EMOM 10%
    ============================================================ */
 function composeMetcon(targetMin, opts = {}) {
+  /* 파트너 스타일: 60% 2인 교대(전체 x1.3), 40% 싱크로 혼합(싱크로 동작은 스케일 없음) */
+  if (opts.partner) opts = Object.assign({}, opts, { synchroMode: chance(0.4) });
   for (let attempt = 0; attempt < 16; attempt++) {
     const w = buildMetconOnce(targetMin, opts);
     if (!w) continue;
@@ -358,6 +360,7 @@ function composeMetcon(targetMin, opts = {}) {
     if (w.est && (w.est < targetMin * 0.75 || w.est > targetMin * 1.05)) continue;
     if (isRecentDup(w.sig) && !chance(0.05)) continue; // 95% 재추첨
     recordSig(w.sig);
+    w.synchro = !!w.usedSynchro; /* 싱크로 라인이 실제로 들어간 경우만 */
     return w;
   }
   const w = buildMetconOnce(targetMin, opts) || {
@@ -365,6 +368,7 @@ function composeMetcon(targetMin, opts = {}) {
     sig: "fallback",
   };
   recordSig(w.sig);
+  w.synchro = !!w.usedSynchro;
   return w;
 }
 
@@ -404,6 +408,15 @@ function capLine(estMin, maxCap = 50) {
 function estOf(move, amount, mult) {
   return minutesOf(move, amount) / mult;
 }
+/* 싱크로 대상 선정: 렙 기반·비에르고 동작 1~2개 (파트너 싱크로 혼합 스타일) */
+function pickSynchroIdx(moves, opts) {
+  const set = new Set();
+  if (!opts.synchroMode) return set;
+  const cands = moves.map((m, i) => ({ m, i })).filter((x) => !x.m.unit && !x.m.erg && !x.m.isRun);
+  shuffle(cands).slice(0, Math.min(cands.length, ri(1, 2))).forEach((x) => set.add(x.i));
+  return set;
+}
+const synchroLine = (line) => line.replace(/^(\S+)\s/, "$1 Synchro ");
 
 function buildRounds(T, pool, mult, opts) {
   const k = opts.mwf ? ri(2, 3) : ri(3, 4);
@@ -413,16 +426,21 @@ function buildRounds(T, pool, mult, opts) {
   const roundMin = opts.mwf ? ri(2, 4) : ri(4, 6);
   const rounds = Math.max(2, Math.round(T / roundMin));
   const per = roundMin / moves.length;
-  const amounts = moves.map((m) => amountFor(m, per, mult));
-  /* 실제 표기 렙 기준으로 재검산 */
-  const est = rounds * moves.reduce((s, m, i) => s + estOf(m, amounts[i], mult), 0);
-  const lines = moves.map((m, i) => fmtLine(m, amounts[i], opts));
+  const syn = pickSynchroIdx(moves, opts);
+  const amounts = moves.map((m, i) => amountFor(m, per, syn.has(i) ? 1 : mult));
+  /* 실제 표기 렙 기준으로 재검산 — 싱크로는 같이 수행이라 스케일·단축 없음 */
+  const est = rounds * moves.reduce((s, m, i) =>
+    s + (syn.has(i) ? minutesOf(m, amounts[i]) : estOf(m, amounts[i], mult)), 0);
+  const lines = moves.map((m, i) => {
+    const line = fmtLine(m, amounts[i], opts);
+    return syn.has(i) ? synchroLine(line) : line;
+  });
   const body = [
     `${rounds} Rounds For Time`,
     ...lines,
     capLine(est, opts.mwf ? 20 : 50),
   ].join("\n");
-  return { body, sig: sigOf(moves, `rounds${rounds}`), est };
+  return { body, sig: sigOf(moves, `rounds${rounds}`), est, usedSynchro: syn.size > 0 };
 }
 
 /* 렙스킴은 미리 정해둔 "깔끔한" 패턴만 사용 — 배율 조정으로 42-30-18 같은
@@ -476,11 +494,16 @@ function buildChipper(T, pool, mult, opts) {
   const moves = pickMoves(pool.filter((m) => !m.isRun), k, ctx);
   if (moves.length < 8) return null;
   const per = T / moves.length;
-  const amounts = moves.map((m) => amountFor(m, per, mult));
-  const est = moves.reduce((s, m, i) => s + estOf(m, amounts[i], mult), 0);
-  const lines = moves.map((m, i) => fmtLine(m, amounts[i], opts));
+  const syn = pickSynchroIdx(moves, opts);
+  const amounts = moves.map((m, i) => amountFor(m, per, syn.has(i) ? 1 : mult));
+  const est = moves.reduce((s, m, i) =>
+    s + (syn.has(i) ? minutesOf(m, amounts[i]) : estOf(m, amounts[i], mult)), 0);
+  const lines = moves.map((m, i) => {
+    const line = fmtLine(m, amounts[i], opts);
+    return syn.has(i) ? synchroLine(line) : line;
+  });
   const body = [`For Time (Chipper)`, ...lines, capLine(est, opts.mwf ? 20 : 50)].join("\n");
-  return { body, sig: sigOf(moves, "chip"), est };
+  return { body, sig: sigOf(moves, "chip"), est, usedSynchro: syn.size > 0 };
 }
 
 function buildAmrap(T, pool, mult, opts) {
@@ -490,9 +513,13 @@ function buildAmrap(T, pool, mult, opts) {
   if (moves.length < k) return null;
   const roundMin = opts.mwf ? ri(2, 3) : ri(3, 5);
   const per = roundMin / moves.length;
-  const lines = moves.map((m) => fmtLine(m, amountFor(m, per, mult), opts));
+  const syn = pickSynchroIdx(moves, opts);
+  const lines = moves.map((m, i) => {
+    const line = fmtLine(m, amountFor(m, per, syn.has(i) ? 1 : mult), opts);
+    return syn.has(i) ? synchroLine(line) : line;
+  });
   const body = [`${T}mins AMRAP`, ...lines].join("\n");
-  return { body, sig: sigOf(moves, `amrap`), est: T };
+  return { body, sig: sigOf(moves, `amrap`), est: T, usedSynchro: syn.size > 0 };
 }
 
 function buildAltEmom(T, pool, opts) {
@@ -958,7 +985,7 @@ function generateWeek(monday, prevWeekState, nextWeekState, pins) {
         const w = composeMetcon(T, { partner, station: chance(0.25) });
         cardio = {
           title: partner ? "Partner WOD" : "",
-          body: (partner ? "Partner WOD (2인 교대)\n\n" : "") + w.body,
+          body: (partner ? (w.synchro ? "Partner WOD\n\n" : "Partner WOD (2인 교대)\n\n") : "") + w.body,
           cat: partner ? "teal" : "yellow",
           partner,
         };
@@ -986,7 +1013,7 @@ function generateWeek(monday, prevWeekState, nextWeekState, pins) {
         });
         metcon = {
           cat: partner ? "teal" : "white",
-          body: (partner ? "Partner WOD (2인 교대)\n\n" : "") + w.body,
+          body: (partner ? (w.synchro ? "Partner WOD\n\n" : "Partner WOD (2인 교대)\n\n") : "") + w.body,
           partner,
         };
       }
@@ -1022,7 +1049,7 @@ function generateWeek(monday, prevWeekState, nextWeekState, pins) {
         const w = composeMetcon(choice([30, 35, 40]), { partner, requireRun: true });
         d.cardio = {
           title: partner ? "Partner WOD" : "",
-          body: (partner ? "Partner WOD (2인 교대)\n\n" : "") + w.body,
+          body: (partner ? (w.synchro ? "Partner WOD\n\n" : "Partner WOD (2인 교대)\n\n") : "") + w.body,
           cat: partner ? "teal" : "yellow",
           partner,
         };
@@ -1035,7 +1062,7 @@ function generateWeek(monday, prevWeekState, nextWeekState, pins) {
         });
         d.metcon = {
           cat: partner ? "teal" : "white",
-          body: (partner ? "Partner WOD (2인 교대)\n\n" : "") + w.body,
+          body: (partner ? (w.synchro ? "Partner WOD\n\n" : "Partner WOD (2인 교대)\n\n") : "") + w.body,
           partner,
         };
       }
@@ -1323,7 +1350,7 @@ function regenMwfDay(day) {
       });
       day.metcon = {
         cat: partner ? "teal" : "white",
-        body: (partner ? "Partner WOD (2인 교대)\n\n" : "") + w.body,
+        body: (partner ? (w.synchro ? "Partner WOD\n\n" : "Partner WOD (2인 교대)\n\n") : "") + w.body,
         partner,
       };
     }
@@ -1350,7 +1377,7 @@ function regenDaySlot(day, slot) {
     const w = composeMetcon(T, { partner, station: chance(0.25) });
     day.cardio = {
       title: partner ? "Partner WOD" : "",
-      body: (partner ? "Partner WOD (2인 교대)\n\n" : "") + w.body,
+      body: (partner ? (w.synchro ? "Partner WOD\n\n" : "Partner WOD (2인 교대)\n\n") : "") + w.body,
       cat: partner ? "teal" : "yellow",
       partner,
     };
@@ -1370,7 +1397,7 @@ function regenDaySlot(day, slot) {
     });
     day.metcon = {
       cat: partner ? "teal" : "white",
-      body: (partner ? "Partner WOD (2인 교대)\n\n" : "") + w.body,
+      body: (partner ? (w.synchro ? "Partner WOD\n\n" : "Partner WOD (2인 교대)\n\n") : "") + w.body,
       partner,
     };
     saveState(STATE);

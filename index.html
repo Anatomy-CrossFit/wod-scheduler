@@ -833,7 +833,8 @@ async function unpackSchedule(code) {
 async function shareSchedule() {
   if (!Object.keys(schedule).length) { toast("공유할 스케줄이 없어요 (먼저 생성하세요)"); return; }
   const code = await packSchedule({ v: 1, y: viewYear, m: viewMonth, days: schedule });
-  const link = location.origin + location.pathname + "#s=" + code;
+  /* 공유는 보기 전용 뷰어(생성·인풋 불가, 생성기와 무관한 랜덤 주소)로 연결 */
+  const link = "https://srsplitter.github.io/xqdp02qro0/#s=" + code;
   try {
     await navigator.clipboard.writeText(link);
     toast("공유 링크를 복사했어요 - 붙여넣어 전달하세요");

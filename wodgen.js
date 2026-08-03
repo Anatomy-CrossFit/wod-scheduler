@@ -1223,6 +1223,118 @@ function clearMonthWeekCache(year, month, kept) {
   saveState(STATE);
 }
 
+/* ── 월수금 하루 통째 재추첨 ──
+   스트랭스+메트콘을 연계해서 다시 뽑되, 핀·벤치마크·기념일·Guess와
+   주간 제약(리프트 중복 금지, 인접 주 순서, C&J/쓰러스터/OHS 상호배제)을 지킨다 */
+function rollSingleLiftName(lift, f) {
+  const prefixRoll = () => { const r = R(); return r < 0.8 ? "" : r < 0.9 ? "Power " : "Squat "; };
+  if (lift === "dead") return "Deadlift";
+  if (lift === "press") {
+    if (f.cnj || f.thruster) return "Strict Press";
+    return choice(["Strict Press", "Push Press", "Push Jerk"]);
+  }
+  if (lift === "squat") {
+    if (!f.cnj && !f.pushPress && chance(0.10)) return "Thruster";
+    const r = R();
+    let v = r < 0.85 ? "Back Squat" : r < 0.95 ? "Front Squat" : "Overhead Squat";
+    if (v === "Overhead Squat" && f.hasSnatchElsewhere) v = "Back Squat";
+    return v;
+  }
+  if (lift === "clean") {
+    if (!f.thruster && !f.pushPress && chance(0.20)) return "Clean & Jerk";
+    return (prefixRoll() + "Clean").replace("Squat Squat", "Squat");
+  }
+  if (lift === "snatch") {
+    if (f.hasOHSElsewhere) return null; /* OHS 주에는 스내치 불가 -> 리프트 재추첨 */
+    return (prefixRoll() + "Snatch").replace("Squat Squat", "Squat");
+  }
+  return null;
+}
+function regenMwfDay(day) {
+  if (!day || day.kind !== "mwf") return day;
+  const key = day.key;
+  const dt = new Date(key);
+  const dowJs = dt.getDay();
+  const monday = new Date(dt);
+  monday.setDate(dt.getDate() - (dowJs - 1));
+  const wk = isoWeekKey(monday);
+  const wd = STATE.weekDays[wk] || {};
+  const others = [1, 3, 5].filter((d2) => d2 !== dowJs)
+    .map((d2) => wd[d2])
+    .filter((d2) => d2 && d2.kind === "mwf");
+  const usedLifts = others.map((o) => o.strength.lift);
+  const otherNames = others.map((o) => o.strength.body);
+  const flags = {
+    cnj: otherNames.some((n) => n.indexOf("Clean & Jerk") >= 0),
+    thruster: otherNames.indexOf("Thruster") >= 0,
+    pushPress: otherNames.indexOf("Push Press") >= 0 || otherNames.indexOf("Push Jerk") >= 0,
+    hasSnatchElsewhere: usedLifts.indexOf("snatch") >= 0,
+    hasOHSElsewhere: otherNames.indexOf("Overhead Squat") >= 0,
+  };
+  const sPinned = !!day.strength.pinned;
+  const mPinned = !!day.metcon.pinned;
+  const mKeep = mPinned || !!day.metcon.special || !!day.metcon.guess;
+
+  let lift = day.strength.lift;
+  let sName = day.strength.body;
+  if (!sPinned) {
+    /* 메트콘이 고정(핀·기념일·Guess)이거나 벤치마크면 연계 유지를 위해 리프트는 그대로 */
+    const liftLocked = mKeep || !!day.metcon.benchmark;
+    const clash = (w, order) => w && w.order &&
+      w.order.slice().sort().join() === order.slice().sort().join() &&
+      w.order.join() === order.join();
+    const prevW = STATE.weeks[isoWeekKey(new Date(monday.getFullYear(), monday.getMonth(), monday.getDate() - 7))];
+    const nextW = STATE.weeks[isoWeekKey(new Date(monday.getFullYear(), monday.getMonth(), monday.getDate() + 7))];
+    for (let attempt = 0; attempt < 40; attempt++) {
+      let cand = lift;
+      if (!liftLocked) {
+        const pool = LIFT_WEIGHTS.filter((e) => usedLifts.indexOf(e[0]) < 0);
+        cand = weightedPick(pool.length ? pool : LIFT_WEIGHTS);
+      }
+      const nm = rollSingleLiftName(cand, flags);
+      if (!nm) continue;
+      const order = [1, 3, 5].map((d2) =>
+        d2 === dowJs ? cand : (wd[d2] && wd[d2].kind === "mwf" ? wd[d2].strength.lift : null));
+      if (order.every(Boolean) && (clash(prevW, order) || clash(nextW, order))) continue;
+      lift = cand;
+      sName = nm;
+      break;
+    }
+    day.strength = { cat: LIFT_COLORS[lift], top: day.strength.top || "5x5", body: sName, lift };
+  }
+
+  const weekLike = { flags: { thruster: sName === "Thruster" }, names: {} };
+  if (!mKeep) {
+    if (day.metcon.benchmark) {
+      /* 벤치마크 날은 벤치마크로 재추첨 (60일 쿨다운·리프트 연계 유지) */
+      const g = girlsFor(lift, weekLike, key);
+      day.metcon = { cat: "plum", body: `${g.title}\n\n${g.body}`, benchmark: true };
+    } else {
+      const partner = !!day.metcon.partner;
+      const w = composeMetcon(choice([7, 8, 10, 12, 14, 15, 16, 18]), {
+        pool: linkedPool(lift, weekLike), mwf: true, partner,
+        hasBackSquat: sName === "Back Squat",
+      });
+      day.metcon = {
+        cat: partner ? "teal" : "white",
+        body: (partner ? "Partner WOD (2인 교대)\n\n" : "") + w.body,
+        partner,
+      };
+    }
+  }
+
+  /* 주 상태·캐시 갱신 (리프트가 바뀌면 순서도 갱신) */
+  wd[dowJs] = day;
+  if (STATE.weeks[wk] && STATE.weeks[wk].order) {
+    const posOf = { 1: 0, 3: 1, 5: 2 };
+    const no = STATE.weeks[wk].order.slice();
+    no[posOf[dowJs]] = lift;
+    STATE.weeks[wk].order = no;
+  }
+  saveState(STATE);
+  return day;
+}
+
 /* 하루 단위 재생성 (다시 뽑기) */
 function regenDaySlot(day, slot) {
   if (day.kind === "cardio") {

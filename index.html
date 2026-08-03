@@ -7,7 +7,7 @@
 <!-- PNG/JPG 내보내기용 (GitHub Pages에서 CDN 로드 가능) -->
 <script src="https://cdn.jsdelivr.net/npm/html2canvas@1.4.1/dist/html2canvas.min.js"></script>
 <!-- 배포 시 v를 올려서 브라우저 캐시가 옛 로직을 붙잡지 않게 함 -->
-<script src="wodgen.js?v=18"></script>
+<script src="wodgen.js?v=19"></script>
 <style>
   /* html2canvas 호환을 위해 색상은 hex/rgb만 사용 (oklch 금지) */
   :root {
@@ -529,31 +529,12 @@ function openModal(key, slot) {
         <button class="btn btn-ghost" onclick="closeModal()">닫기</button>
         ${canReroll ? `<button class="btn btn-ghost" onclick="rerollDay('${key}','cardio')">다시 뽑기</button>` : ""}
       </div>`;
-  } else if (slot === "strength") {
-    const s = day.strength;
-    modal.innerHTML = `
-      <div class="m-date">${dateStr}</div>
-      <div class="m-slot">STRENGTH</div>
-      <div class="m-body">${esc(s.top)} ${esc(s.body)}<br><span style="color:var(--muted);font-size:12px">주간 구성 제약(중복 금지·순서 규칙)에 묶여 있어 단독 재추첨은 지원하지 않아요</span></div>
-      <div class="m-actions">
-        <button class="btn btn-ghost" onclick="closeModal()">닫기</button>
-      </div>`;
   } else {
-    /* metcon */
-    const mIt = day.metcon;
-    const canReroll = !(mIt.benchmark || mIt.special || mIt.guess || mIt.pinned);
-    const label = mIt.guess ? "PARTNER GAME" : mIt.benchmark || mIt.special ? "BENCHMARK" : mIt.partner ? "PARTNER METCON" : "METCON";
-    modal.innerHTML = `
-      <div class="m-date">${dateStr}</div>
-      <div class="m-slot">${label}</div>
-      <div class="m-body">${bodyHtml(mIt.body)}</div>
-      <div class="m-actions">
-        <button class="btn btn-ghost" onclick="closeModal()">닫기</button>
-        ${canReroll ? `<button class="btn btn-ghost" onclick="rerollDay('${key}','metcon')">다시 뽑기</button>` : ""}
-      </div>`;
+    /* 월수금: 스트랭스 + 와드를 한 모달에 (다시 뽑기는 하루 통째, 핀·벤치마크 존중) */
+    buildMwfModal(key, day, dateStr);
   }
-  /* 와드 텍스트 영역 우측 하단에 복사 + 연필(직접 수정) 버튼 부착 */
-  if (slot === "cardio" || slot === "metcon" || slot === "strength") {
+  /* 와드 텍스트 영역 우측 하단에 복사 + 연필(직접 수정) 버튼 부착 (월수금은 빌더가 부착) */
+  if (slot === "cardio") {
     attachCopyButton(key, slot);
     attachEditButton(key, slot);
   }
@@ -605,8 +586,8 @@ function copySvg() {
   svg.appendChild(p);
   return svg;
 }
-function attachCopyButton(key, slot) {
-  const body = $("modal").querySelector(".m-body");
+function attachCopyButton(key, slot, bodyEl) {
+  const body = bodyEl || $("modal").querySelector(".m-body");
   if (!body) return;
   const btn = document.createElement("button");
   btn.className = "m-edit m-copy";
@@ -633,8 +614,8 @@ function attachCopyButton(key, slot) {
   });
   body.appendChild(btn);
 }
-function attachEditButton(key, slot) {
-  const body = $("modal").querySelector(".m-body");
+function attachEditButton(key, slot, bodyEl) {
+  const body = bodyEl || $("modal").querySelector(".m-body");
   if (!body) return;
   const btn = document.createElement("button");
   btn.className = "m-edit";
@@ -700,6 +681,58 @@ function saveEdit(key, slot) {
   renderCalendar();
   openModal(key, slot);
   toast("수정한 내용을 저장했어요");
+}
+
+/* ── 월수금 통합 모달: 위=스트랭스, 아래=와드, 다시 뽑기는 하루 통째(연계) ── */
+function buildMwfModal(key, day, dateStr) {
+  const modal = $("modal");
+  modal.textContent = "";
+  const mk = (tag, cls, text) => {
+    const el = document.createElement(tag);
+    if (cls) el.className = cls;
+    if (text) el.textContent = text;
+    return el;
+  };
+  const fillBody = (el, text) => {
+    text.split("\n").forEach((line, i) => {
+      if (i > 0) el.appendChild(document.createElement("br"));
+      el.appendChild(document.createTextNode(line));
+    });
+  };
+  modal.appendChild(mk("div", "m-date", dateStr));
+  const s = day.strength, m = day.metcon;
+  modal.appendChild(mk("div", "m-slot", "STRENGTH" + (s.pinned ? " — 고정됨" : "")));
+  const sBody = mk("div", "m-body");
+  fillBody(sBody, (s.top ? s.top + "\n" : "") + s.body);
+  modal.appendChild(sBody);
+  attachCopyButton(key, "strength", sBody);
+  attachEditButton(key, "strength", sBody);
+  const mTag = m.guess ? "PARTNER GAME" : m.benchmark || m.special ? "BENCHMARK" : m.partner ? "PARTNER METCON" : "METCON";
+  modal.appendChild(mk("div", "m-slot", mTag + (m.pinned ? " — 고정됨" : "")));
+  const mBody = mk("div", "m-body");
+  fillBody(mBody, m.body);
+  modal.appendChild(mBody);
+  attachCopyButton(key, "metcon", mBody);
+  attachEditButton(key, "metcon", mBody);
+  const actions = mk("div", "m-actions");
+  const close = mk("button", "btn btn-ghost", "닫기");
+  close.addEventListener("click", closeModal);
+  actions.appendChild(close);
+  const strengthRerollable = !s.pinned;
+  const metconRerollable = !(m.pinned || m.special || m.guess);
+  if (strengthRerollable || metconRerollable) {
+    const rb = mk("button", "btn btn-primary", "다시 뽑기");
+    rb.addEventListener("click", () => rerollMwf(key));
+    actions.appendChild(rb);
+  }
+  modal.appendChild(actions);
+}
+function rerollMwf(key) {
+  schedule[key] = regenMwfDay(schedule[key]);
+  storeMonth(viewYear, viewMonth, schedule);
+  renderCalendar();
+  openModal(key, "strength");
+  toast("고정된 부분을 지키면서 다시 뽑았어요");
 }
 
 function toggleRest(key) {

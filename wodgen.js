@@ -381,9 +381,13 @@ function buildMetconOnce(targetMin, opts) {
   }
   if (type === "amrap") return buildAmrap(targetMin, pool, mult, opts);
   /* For Time: 라운드 60% / 렙스킴 25% / 치퍼 15% (짧은 메트콘은 치퍼 제외) */
-  let sub = weightedPick([["rounds", 0.6], ["ladder", 0.25], ["chipper", opts.mwf ? 0 : 0.15]]);
-  /* 렙스킴은 렙 동작만이라, 치퍼는 동작이 많아 달리기와 동선이 겹쳐서 라운드로 대체 */
-  if (opts.requireRun && (sub === "ladder" || sub === "chipper")) sub = "rounds";
+  /* 치퍼는 항상 달리기 없이 구성. 달리기 필수 슬롯에서는 달리기를 담을 수 있는
+     형식(라운드)만 추첨 대상 — 렙스킴(렙 동작만)·치퍼(달리기 금지)는 후보 제외 */
+  const sub = weightedPick([
+    ["rounds", 0.6],
+    ["ladder", opts.requireRun ? 0 : 0.25],
+    ["chipper", opts.mwf || opts.requireRun ? 0 : 0.15],
+  ]);
   if (sub === "ladder") return buildLadder(targetMin, pool, mult, opts);
   if (sub === "chipper") return buildChipper(targetMin, pool, mult, opts);
   return buildRounds(targetMin, pool, mult, opts);

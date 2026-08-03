@@ -59,14 +59,12 @@ const MOVES = [
   { n: "Russian twist",  per2: 80,  alt: true, tags: ["abs"] },
   { n: "V-up",           per2: 40,  tags: ["abs"] },
   { n: "Hollow rock",    per2: 50,  tags: ["abs"] },
-  { n: "Back extension", per2: 50,  tags: ["abs"] },
   { n: "Plank shoulder tap", per2: 60, alt: true, tags: ["abs"] },
 
   { n: "Pull up",  per2: 30, rig: true, tags: ["upper"] },
   { n: "C2B Pull up", per2: 15, rig: true, tags: ["upper"] },
   { n: "T2B",      per2: 24, rig: true, tags: ["abs"] },
-  /* HSPU·Muscle up은 벤치마크 원문에만 — 생성 와드는 대중적인 동작으로 */
-  { n: "Ring dip", per2: 24, tags: ["upper", "press"] },
+  /* HSPU·Muscle up·Ring dip은 벤치마크 원문에만 — 생성 와드는 대중적인 동작으로 */
 
   /* 바벨·DB는 파운드 표기(시트 관례), KB는 kg */
   { n: "KB Swing 24/16",     per2: 40, tags: ["lower", "snatch"] },

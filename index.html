@@ -895,7 +895,7 @@ async function shareSchedule() {
   if (!Object.keys(schedule).length) { toast("공유할 스케줄이 없어요 (먼저 생성하세요)"); return; }
   const code = await packSchedule({ v: 1, y: viewYear, m: viewMonth, days: slimDays(schedule) });
   /* 공유는 보기 전용 뷰어(생성·인풋 불가, 생성기와 무관한 랜덤 주소)로 연결 */
-  const long = "https://wodviewer.github.io/#s=" + code;
+  const long = "https://wodviewer.github.io/?s=" + code;
   toast("공유 링크 만드는 중...");
   const link = (await shortenLink(long)) || long;
   try {
@@ -935,6 +935,52 @@ function importSchedule(data) {
   toast(`${data.y}년 ${data.m + 1}월 공유 스케줄을 불러왔어요`);
 }
 
+/* 단축 링크 자동 해석: 숨김 iframe으로 열면 리다이렉트 끝에 뷰어가 도착하고,
+   뷰어가 postMessage로 코드 조각을 넘겨준다 (수신은 뷰어 origin만 허용) */
+async function resolveShareLink(url) {
+  toast("링크 확인 중...");
+  /* 1차: fetch로 리다이렉트를 따라가 최종 주소의 ?s= 코드를 회수 (새 공유 링크) */
+  try {
+    const res = await fetch(url, { redirect: "follow" });
+    const m = res.url.match(/[?&]s=([^&]+)/);
+    if (m) {
+      importSchedule(await unpackSchedule(m[1]));
+      return;
+    }
+  } catch (err) {}
+  /* 2차: 구형 프래그먼트(#s=) 링크는 숨김 iframe + 뷰어 postMessage로 회수 */
+  resolveViaIframe(url);
+}
+function resolveViaIframe(url) {
+  const iframe = document.createElement("iframe");
+  iframe.style.display = "none";
+  let done = false;
+  const finish = () => {
+    window.removeEventListener("message", onMsg);
+    iframe.remove();
+  };
+  const onMsg = async (e) => {
+    if (e.origin !== "https://wodviewer.github.io") return;
+    const d = e.data;
+    if (!d || d.type !== "wodcal-share" || !d.code) return;
+    done = true;
+    finish();
+    try {
+      importSchedule(await unpackSchedule(d.code));
+    } catch (err) {
+      toast("링크를 읽지 못했어요");
+    }
+  };
+  window.addEventListener("message", onMsg);
+  iframe.src = url;
+  document.body.appendChild(iframe);
+  setTimeout(() => {
+    if (done) return;
+    finish();
+    toast("링크를 열지 못했어요 - 전체 링크(#s= 포함)를 붙여넣어 주세요");
+  }, 8000);
+}
+
 function openImportModal() {
   const modal = $("modal");
   modal.textContent = "";
@@ -958,7 +1004,13 @@ function openImportModal() {
   go.addEventListener("click", async () => {
     const raw = ta.value.trim();
     if (!raw) { toast("링크를 붙여넣어 주세요"); return; }
-    const hm = raw.match(/#s=([^\s&]+)/);
+    const hm = raw.match(/[#?&]s=([^\s&]+)/);
+    if (!hm && /^https?:\/\//i.test(raw)) {
+      /* 단축 링크: 숨김 iframe으로 열어 뷰어가 알려주는 코드로 자동 임포트 */
+      closeModal();
+      resolveShareLink(raw);
+      return;
+    }
     const code = hm ? hm[1] : raw;
     try {
       const data = await unpackSchedule(code);
@@ -1030,11 +1082,13 @@ $("nextMonth").addEventListener("click", () => {
 /* ── 초기 렌더: 공유 링크(#s=)가 있으면 우선 불러오고,
    아니면 저장된 스케줄 로드, 없으면 생성 ── */
 (async () => {
+  const qm = location.search.match(/[?&]s=([^&]+)/);
   const hm = location.hash.match(/^#s=(.+)$/);
-  if (hm) {
+  const codeStr = (qm && qm[1]) || (hm && hm[1]);
+  if (codeStr) {
     try {
-      const data = await unpackSchedule(hm[1]);
-      history.replaceState(null, "", location.pathname + location.search);
+      const data = await unpackSchedule(codeStr);
+      history.replaceState(null, "", location.pathname);
       importSchedule(data);
       return;
     } catch (err) {
